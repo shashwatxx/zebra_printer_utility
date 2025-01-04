@@ -121,8 +121,11 @@ class _PrinterTemplateState extends State<PrinterTemplate> {
             trailing: IconButton(
               icon: Icon(Icons.bluetooth_connected_rounded,
                   color: printers[index].color),
-              onPressed: () {
-                zebraPrinter.connectToPrinter(printers[index].address);
+              onPressed: () async {
+                await zebraPrinter.connectToPrinter(printers[index].address);
+                setState(() {
+                  if(zebraPrinter.isScanning) zebraPrinter.stopScanning();
+                });
               },
             ),
           );
