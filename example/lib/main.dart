@@ -44,6 +44,7 @@ class PrinterTemplate extends StatefulWidget {
 class _PrinterTemplateState extends State<PrinterTemplate> {
   late ZebraPrinter zebraPrinter;
   late ZebraController controller;
+  String? errorMessage;
   final String dataToPrint = """^XA
         ^FX Top section with logo, name and address.
         ^CF0,60
@@ -62,6 +63,23 @@ class _PrinterTemplateState extends State<PrinterTemplate> {
   void initState() {
     zebraPrinter = widget.printer;
     controller = zebraPrinter.controller;
+
+    // Add error handling
+    zebraPrinter.onDiscoveryError = (errorCode, errorText) {
+      print("Discovery Error: $errorCode - $errorText");
+      setState(() {
+        errorMessage = "Error: $errorText";
+      });
+    };
+
+    zebraPrinter.onPermissionDenied = () {
+      print("Permission denied");
+      setState(() {
+        errorMessage =
+            "Permission denied. Please grant location and Bluetooth permissions.";
+      });
+    };
+
     zebraPrinter.startScanning();
     super.initState();
   }
@@ -75,7 +93,7 @@ class _PrinterTemplateState extends State<PrinterTemplate> {
               const Text("My Printers"),
               if (zebraPrinter.isScanning)
                 const Text(
-                  "Seaching for printers...",
+                  "Searching for printers...",
                   style: TextStyle(color: Colors.grey, fontSize: 12),
                 ),
             ],
@@ -86,6 +104,9 @@ class _PrinterTemplateState extends State<PrinterTemplate> {
             if (zebraPrinter.isScanning) {
               zebraPrinter.stopScanning();
             } else {
+              setState(() {
+                errorMessage = null;
+              });
               zebraPrinter.startScanning();
             }
             setState(() {});
@@ -93,15 +114,31 @@ class _PrinterTemplateState extends State<PrinterTemplate> {
           child: Icon(
               zebraPrinter.isScanning ? Icons.stop_circle : Icons.play_circle),
         ),
-        body: ListenableBuilder(
-          listenable: controller,
-          builder: (context, child) {
-            final printers = controller.printers;
-            if (printers.isEmpty) {
-              return _getNotAvailablePage();
-            }
-            return _getListDevices(printers);
-          },
+        body: Column(
+          children: [
+            if (errorMessage != null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                color: Colors.red.shade100,
+                child: Text(
+                  errorMessage!,
+                  style: TextStyle(color: Colors.red.shade800),
+                ),
+              ),
+            Expanded(
+              child: ListenableBuilder(
+                listenable: controller,
+                builder: (context, child) {
+                  final printers = controller.printers;
+                  if (printers.isEmpty) {
+                    return _getNotAvailablePage();
+                  }
+                  return _getListDevices(printers);
+                },
+              ),
+            ),
+          ],
         ));
   }
 
@@ -119,12 +156,12 @@ class _PrinterTemplateState extends State<PrinterTemplate> {
               },
             ),
             trailing: IconButton(
-              icon: Icon(Icons.bluetooth_connected_rounded,
+              icon: Icon(Icons.connect_without_contact_rounded,
                   color: printers[index].color),
               onPressed: () async {
                 await zebraPrinter.connectToPrinter(printers[index].address);
                 setState(() {
-                  if(zebraPrinter.isScanning) zebraPrinter.stopScanning();
+                  if (zebraPrinter.isScanning) zebraPrinter.stopScanning();
                 });
               },
             ),
@@ -142,6 +179,12 @@ class _PrinterTemplateState extends State<PrinterTemplate> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text("Printers not found"),
+          SizedBox(height: 16),
+          Text(
+            "Make sure:\n• Bluetooth is enabled\n• Location services are enabled\n• Zebra printers are in range and discoverable\n• For WiFi printers: connected to the same network",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
         ],
       ),
     );
