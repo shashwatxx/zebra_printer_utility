@@ -58,6 +58,9 @@ public class Printer implements MethodChannel.MethodCallHandler {
     private static ArrayList<DiscoveredPrinter> sendedDiscoveredPrinters = new ArrayList<>();
     private boolean isZebraPrinter = true;
     private Socketmanager socketmanager;
+    private static boolean isBluetoothDiscoveryActive = false;
+    private static boolean isNetworkDiscoveryActive = false;
+    private static int activeDiscoveryCount = 0;
 
 
     public Printer(ActivityPluginBinding binding, BinaryMessenger binaryMessenger) {
@@ -71,30 +74,47 @@ public class Printer implements MethodChannel.MethodCallHandler {
     public static void startScanning(final Context context, final MethodChannel methodChannel) {
 
         try {
+            System.out.println("ZebraUtil: Starting printer discovery...");
             sendedDiscoveredPrinters.clear();
             for (DiscoveredPrinter dp :
                     discoveredPrinters) {
                 addNewDiscoverPrinter(dp, context, methodChannel);
             }
+            
+            // Start Bluetooth discovery
+            System.out.println("ZebraUtil: Starting Bluetooth discovery...");
+            isBluetoothDiscoveryActive = true;
+            activeDiscoveryCount++;
             BluetoothDiscoverer.findPrinters(context, new DiscoveryHandlerCustom() {
                 @Override
                 public void foundPrinter(final DiscoveredPrinter discoveredPrinter) {
+                    System.out.println("ZebraUtil: Bluetooth printer found: " + discoveredPrinter.address);
                     discoveredPrinters.add(discoveredPrinter);
                     ((Activity) context).runOnUiThread(() -> addNewDiscoverPrinter(discoveredPrinter, context, methodChannel));
                 }
 
                 @Override
                 public void printerOutOfRange(DiscoveredPrinter discoverPrinter) {
+                    System.out.println("ZebraUtil: Bluetooth printer out of range: " + discoverPrinter.address);
                     removeDiscoverPrinter(discoverPrinter,context,methodChannel);
                 }
 
                 @Override
                 public void discoveryFinished() {
-                    onDiscoveryDone(context, methodChannel);
+                    System.out.println("ZebraUtil: Bluetooth discovery finished");
+                    isBluetoothDiscoveryActive = false;
+                    activeDiscoveryCount--;
+                    if (activeDiscoveryCount == 0) {
+                        System.out.println("ZebraUtil: All discovery finished");
+                        onDiscoveryDone(context, methodChannel);
+                    }
                 }
 
                 @Override
                 public void discoveryError(String s) {
+                    System.out.println("ZebraUtil: Bluetooth discovery error: " + s);
+                    isBluetoothDiscoveryActive = false;
+                    activeDiscoveryCount--;
                     if(s.contains("Bluetooth radio is currently disabled"))
                         onDiscoveryError(context, methodChannel, ON_DISCOVERY_ERROR_BLUETOOTH, s);
                     else
@@ -102,30 +122,49 @@ public class Printer implements MethodChannel.MethodCallHandler {
                 }
             });
 
-
+            // Start Network discovery
+            System.out.println("ZebraUtil: Starting Network discovery...");
+            isNetworkDiscoveryActive = true;
+            activeDiscoveryCount++;
             NetworkDiscoverer.findPrinters(new DiscoveryHandlerCustom() {
                 @Override
                 public void foundPrinter(DiscoveredPrinter discoveredPrinter) {
+                    System.out.println("ZebraUtil: Network printer found: " + discoveredPrinter.address);
                     addNewDiscoverPrinter(discoveredPrinter, context, methodChannel);
                 }
 
                 @Override
                 public void printerOutOfRange(DiscoveredPrinter discoverPrinter) {
+                    System.out.println("ZebraUtil: Network printer out of range: " + discoverPrinter.address);
                     removeDiscoverPrinter(discoverPrinter,context,methodChannel);
                 }
 
                 @Override
                 public void discoveryFinished() {
-                    onDiscoveryDone(context, methodChannel);
+                    System.out.println("ZebraUtil: Network discovery finished");
+                    isNetworkDiscoveryActive = false;
+                    activeDiscoveryCount--;
+                    if (activeDiscoveryCount == 0) {
+                        System.out.println("ZebraUtil: All discovery finished");
+                        onDiscoveryDone(context, methodChannel);
+                    }
                 }
 
                 @Override
                 public void discoveryError(String s) {
+                    System.out.println("ZebraUtil: Network discovery error: " + s);
+                    isNetworkDiscoveryActive = false;
+                    activeDiscoveryCount--;
                     onDiscoveryError(context, methodChannel, ON_DISCOVERY_ERROR_GENERAL, s);
                 }
             });
         } catch (Exception e) {
+            System.out.println("ZebraUtil: Exception during discovery: " + e.getMessage());
             e.printStackTrace();
+            // Reset counters on exception
+            isBluetoothDiscoveryActive = false;
+            isNetworkDiscoveryActive = false;
+            activeDiscoveryCount = 0;
         }
     }
 
@@ -146,29 +185,61 @@ public class Printer implements MethodChannel.MethodCallHandler {
 
     private void checkPermission(Context context, final MethodChannel.Result result) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // Check for location permission (required for Bluetooth scanning)
+            boolean hasLocationPermission = context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+            
+            // Check for Bluetooth permissions (required for Android 12+)
+            boolean hasBluetoothScanPermission = true;
+            boolean hasBluetoothConnectPermission = true;
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                hasBluetoothScanPermission = context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED;
+                hasBluetoothConnectPermission = context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
+            }
+            
+            if (!hasLocationPermission || !hasBluetoothScanPermission || !hasBluetoothConnectPermission) {
                 binding.addRequestPermissionsResultListener(new PluginRegistry.RequestPermissionsResultListener() {
                     @Override
                     public boolean onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
                         if (requestCode == ACCESS_COARSE_LOCATION_REQUEST_CODE) {
-                            if (grantResults.length > 0)
-                                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                                    try {
-                                        result.success(true);
-                                        return false;
-                                    } catch (Exception e) {
-                                        return false;
-                                    }
+                            boolean allGranted = true;
+                            for (int grantResult : grantResults) {
+                                if (grantResult != PackageManager.PERMISSION_GRANTED) {
+                                    allGranted = false;
+                                    break;
                                 }
+                            }
+                            try {
+                                result.success(allGranted);
+                                return false;
+                            } catch (Exception e) {
+                                return false;
+                            }
                         }
                         result.success(false);
                         return false;
                     }
                 });
-                ((Activity) context).requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION
-                      },
-                        ACCESS_COARSE_LOCATION_REQUEST_CODE);
-
+                
+                // Request all necessary permissions
+                java.util.List<String> permissionsToRequest = new java.util.ArrayList<>();
+                if (!hasLocationPermission) {
+                    permissionsToRequest.add(android.Manifest.permission.ACCESS_FINE_LOCATION);
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (!hasBluetoothScanPermission) {
+                        permissionsToRequest.add(android.Manifest.permission.BLUETOOTH_SCAN);
+                    }
+                    if (!hasBluetoothConnectPermission) {
+                        permissionsToRequest.add(android.Manifest.permission.BLUETOOTH_CONNECT);
+                    }
+                }
+                
+                ((Activity) context).requestPermissions(
+                    permissionsToRequest.toArray(new String[0]),
+                    ACCESS_COARSE_LOCATION_REQUEST_CODE
+                );
             } else {
                 result.success(true);
             }
@@ -382,7 +453,13 @@ public class Printer implements MethodChannel.MethodCallHandler {
     }
 
     public void stopScan(){
+        // Stop Bluetooth discovery
         BluetoothDiscoverer.stopBluetoothDiscovery();
+        
+        // Reset tracking variables
+        isBluetoothDiscoveryActive = false;
+        isNetworkDiscoveryActive = false;
+        activeDiscoveryCount = 0;
     }
 
 

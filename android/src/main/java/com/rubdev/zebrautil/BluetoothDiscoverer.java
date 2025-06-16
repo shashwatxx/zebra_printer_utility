@@ -1,4 +1,3 @@
-
 package com.rubdev.zebrautil;
 
 import android.bluetooth.BluetoothAdapter;
@@ -26,6 +25,7 @@ public class BluetoothDiscoverer {
     BluetoothDiscoverer.BtRadioMonitor btMonitor;
     private final DeviceFilter deviceFilter;
     private static BluetoothDiscoverer bluetoothDiscoverer;
+    private static boolean isDiscoveryActive = false;
 
     private BluetoothDiscoverer(Context context, DiscoveryHandlerCustom handler, DeviceFilter filter) {
         this.mContext = context.getApplicationContext();
@@ -47,6 +47,7 @@ public class BluetoothDiscoverer {
             if (bluetoothDiscoverer == null) {
                 bluetoothDiscoverer = new BluetoothDiscoverer(context.getApplicationContext(), handler, filter);
             }
+            isDiscoveryActive = true;
             bluetoothDiscoverer.doBluetoothDisco();
         }
 
@@ -59,16 +60,29 @@ public class BluetoothDiscoverer {
 
     private void unregisterTopLevelReceivers(Context var1) {
         if (this.btReceiver != null) {
-            var1.unregisterReceiver(this.btReceiver);
+            try {
+                var1.unregisterReceiver(this.btReceiver);
+            } catch (IllegalArgumentException e) {
+                // Receiver not registered, ignore
+            }
         }
 
         if (this.btMonitor != null) {
-            var1.unregisterReceiver(this.btMonitor);
+            try {
+                var1.unregisterReceiver(this.btMonitor);
+            } catch (IllegalArgumentException e) {
+                // Receiver not registered, ignore
+            }
         }
     }
 
     public static void stopBluetoothDiscovery() {
+        isDiscoveryActive = false;
         if (bluetoothDiscoverer != null) {
+            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            if (adapter != null && adapter.isDiscovering()) {
+                adapter.cancelDiscovery();
+            }
             bluetoothDiscoverer.unregisterTopLevelReceivers(bluetoothDiscoverer.mContext);
             bluetoothDiscoverer = null;
         }
@@ -124,7 +138,18 @@ public class BluetoothDiscoverer {
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
                 checkForMissingDevices();
                 BluetoothDiscoverer.this.mDiscoveryHandler.discoveryFinished();
-                new Handler().postDelayed(() -> BluetoothAdapter.getDefaultAdapter().startDiscovery(), DISCOVERY_INTERVAL);
+                
+                // Only restart discovery if it's still active
+                if (isDiscoveryActive) {
+                    new Handler().postDelayed(() -> {
+                        if (isDiscoveryActive) {
+                            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+                            if (adapter != null && adapter.isEnabled() && !adapter.isDiscovering()) {
+                                adapter.startDiscovery();
+                            }
+                        }
+                    }, DISCOVERY_INTERVAL);
+                }
             }
 
         }
