@@ -80,6 +80,42 @@ public class Printer implements MethodChannel.MethodCallHandler {
                     discoveredPrinters) {
                 addNewDiscoverPrinter(dp, context, methodChannel);
             }
+            // Start Network discovery
+            System.out.println("ZebraUtil: Starting Network discovery...");
+            isNetworkDiscoveryActive = true;
+            activeDiscoveryCount++;
+            NetworkDiscoverer.findPrinters(new DiscoveryHandlerCustom() {
+                @Override
+                public void foundPrinter(DiscoveredPrinter discoveredPrinter) {
+                    System.out.println("ZebraUtil: Network printer found: " + discoveredPrinter.address);
+                    addNewDiscoverPrinter(discoveredPrinter, context, methodChannel);
+                }
+
+                @Override
+                public void printerOutOfRange(DiscoveredPrinter discoverPrinter) {
+                    System.out.println("ZebraUtil: Network printer out of range: " + discoverPrinter.address);
+                    removeDiscoverPrinter(discoverPrinter,context,methodChannel);
+                }
+
+                @Override
+                public void discoveryFinished() {
+                    System.out.println("ZebraUtil: Network discovery finished");
+                    isNetworkDiscoveryActive = false;
+                    activeDiscoveryCount--;
+                    if (activeDiscoveryCount == 0) {
+                        System.out.println("ZebraUtil: All discovery finished");
+                        onDiscoveryDone(context, methodChannel);
+                    }
+                }
+
+                @Override
+                public void discoveryError(String s) {
+                    System.out.println("ZebraUtil: Network discovery error: " + s);
+                    isNetworkDiscoveryActive = false;
+                    activeDiscoveryCount--;
+                    onDiscoveryError(context, methodChannel, ON_DISCOVERY_ERROR_GENERAL, s);
+                }
+            });
             
             // Start Bluetooth discovery
             System.out.println("ZebraUtil: Starting Bluetooth discovery...");
@@ -122,42 +158,7 @@ public class Printer implements MethodChannel.MethodCallHandler {
                 }
             });
 
-            // Start Network discovery
-            System.out.println("ZebraUtil: Starting Network discovery...");
-            isNetworkDiscoveryActive = true;
-            activeDiscoveryCount++;
-            NetworkDiscoverer.findPrinters(new DiscoveryHandlerCustom() {
-                @Override
-                public void foundPrinter(DiscoveredPrinter discoveredPrinter) {
-                    System.out.println("ZebraUtil: Network printer found: " + discoveredPrinter.address);
-                    addNewDiscoverPrinter(discoveredPrinter, context, methodChannel);
-                }
-
-                @Override
-                public void printerOutOfRange(DiscoveredPrinter discoverPrinter) {
-                    System.out.println("ZebraUtil: Network printer out of range: " + discoverPrinter.address);
-                    removeDiscoverPrinter(discoverPrinter,context,methodChannel);
-                }
-
-                @Override
-                public void discoveryFinished() {
-                    System.out.println("ZebraUtil: Network discovery finished");
-                    isNetworkDiscoveryActive = false;
-                    activeDiscoveryCount--;
-                    if (activeDiscoveryCount == 0) {
-                        System.out.println("ZebraUtil: All discovery finished");
-                        onDiscoveryDone(context, methodChannel);
-                    }
-                }
-
-                @Override
-                public void discoveryError(String s) {
-                    System.out.println("ZebraUtil: Network discovery error: " + s);
-                    isNetworkDiscoveryActive = false;
-                    activeDiscoveryCount--;
-                    onDiscoveryError(context, methodChannel, ON_DISCOVERY_ERROR_GENERAL, s);
-                }
-            });
+            
         } catch (Exception e) {
             System.out.println("ZebraUtil: Exception during discovery: " + e.getMessage());
             e.printStackTrace();
