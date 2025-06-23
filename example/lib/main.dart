@@ -171,20 +171,30 @@ class _PrinterTemplateState extends State<PrinterTemplate> {
   }
 
   SizedBox _getNotAvailablePage() {
-    return const SizedBox(
+    return SizedBox(
       width: double.infinity,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisSize: MainAxisSize.max,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text("Printers not found"),
-          SizedBox(height: 16),
-          Text(
+          const Text("Printers not found"),
+          const SizedBox(height: 16),
+          const Text(
             "Make sure:\n• Bluetooth is enabled\n• Location services are enabled\n• Zebra printers are in range and discoverable\n• For WiFi printers: connected to the same network",
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: Colors.grey),
           ),
+          ElevatedButton(
+              onPressed: () {
+                zebraPrinter.connectToGenericPrinter("00:07:4D:C9:52:88");
+              },
+              child: const Text("Connect to Generic Printer")),
+          ElevatedButton(
+              onPressed: () {
+                zebraPrinter.print(data: dataToPrint);
+              },
+              child: const Text("Print"))
         ],
       ),
     );
