@@ -46,3 +46,8 @@ Applied coding best practices, including proper resource management and context 
 ## 1.4.42
 * Fix error in Printer class, devices were duplicated.
 * Persist printer connected.
+
+## 1.5.0
+* Fix example App
+* update android files
+* new publishing

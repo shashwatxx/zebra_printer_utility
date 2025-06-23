@@ -3,6 +3,7 @@ description: A plugin for working with zebra printers in flutter
 version: 1.5.0
 repository: https://github.com/shashwatxx/zebra_printer_utility
 
+publish_to: https://onepub.dev/api/kjhxxpsdav/
 
 environment:
   sdk: '>=2.17.0 <4.0.0'
