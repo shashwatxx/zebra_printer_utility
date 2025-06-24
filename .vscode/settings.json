@@ -1,6 +1,10 @@
 {
     "C_Cpp.errorSquiggles": "disabled",
     "cSpell.words": [
+        "ARGB",
+        "mstr",
+        "setvar",
+        "socketmanager",
         "zebrautil"
     ]
 }

@@ -1,13 +1,22 @@
 # Flutter ZebraUtil
 
-
+## 🚀 Enhanced & Production-Ready
 
 Zebra utility is a plugin for working easily with zebra printers in your flutter project.
 
-  - Discovery bluetooth and wifi printers in android and bluetooth printers in iOS.
-  - Connect and disconnect to printers
-  - Set mediatype, darkness, calibrate command without writing any ZPL code for ZPL printers.
-  - Rotate ZPL without changing your zpl.
+### ✨ Key Features
+  - **Stable & Crash-Free**: Fixed critical threading issues for reliable printing
+  - **Discovery**: Bluetooth and WiFi printers on Android, Bluetooth printers on iOS
+  - **Easy Connection**: Connect and disconnect to printers seamlessly
+  - **ZPL Commands**: Set mediatype, darkness, calibrate without writing ZPL code
+  - **Print Rotation**: Rotate ZPL without changing your existing code
+  - **Real-time Callbacks**: Get immediate feedback on print success/failure
+
+### 🛠️ Recent Improvements
+- ✅ **Fixed Threading Crashes**: Resolved `Methods marked with @UiThread must be executed on the main thread` errors
+- ✅ **Enhanced Print Callbacks**: Real-time print completion and error detection
+- ✅ **Improved Stability**: Thread-safe method channel communications
+- ✅ **Better Error Handling**: Specific error messages for different printer states
 
 
 # Installation
@@ -58,15 +67,28 @@ There is a static class that allows you to create different instances of ZebraPr
       ),
 ```
 
-You can then pass callbacks for either `onDiscoveryError`, `onPermissionDenied`, or neither.
+You can then set up callbacks for various events:
 
 ```sh
-     zebraPrinter.onDiscoveryError =  ( errorCode, errorText) {
-      print("Error: $errorCode, $errorText");
-    };
-    zebraPrinter.onPermissionDenied = () {
+    // Discovery callbacks
+    zebraPrinter.setOnDiscoveryError((errorCode, errorText) {
+      print("Discovery Error: $errorCode, $errorText");
+    });
+    
+    zebraPrinter.setOnPermissionDenied(() {
       print("Permission denied");
-    }
+    });
+    
+    // Print completion callbacks (Enhanced!)
+    zebraPrinter.setOnPrintComplete(() {
+      print("Print completed successfully!");
+      // Show success dialog or update UI
+    });
+    
+    zebraPrinter.setOnPrintError((errorMessage) {
+      print("Print failed: $errorMessage");
+      // Handle specific error (paper out, head open, etc.)
+    });
 ```
 
 ## Methods
@@ -125,8 +147,27 @@ For disconnect from printer, use `disconnect` method. For battery saver, disconn
   zebraPrinter.disconnect();
 ```
 
-# P.S
-You need to be aware that once you are connected to a printer, it may not be detected by the scan. I recommend stopping the scan after successfully connecting to a printer until the issue is resolved.
+## 🔧 Troubleshooting
+
+### Common Issues and Solutions
+
+**Threading Crashes (Fixed in Latest Version)**
+- **Issue**: App crashes with `Methods marked with @UiThread must be executed on the main thread`
+- **Solution**: Update to the latest version - this threading issue has been resolved
+
+**Print Completion Detection**
+- **Feature**: The plugin now provides real-time print completion callbacks
+- **Usage**: Use `setOnPrintComplete()` and `setOnPrintError()` for immediate feedback
+
+**Scanner Behavior**
+- **Note**: Once connected to a printer, it may not be detected by subsequent scans
+- **Recommendation**: Stop scanning after successful connection for better performance
+
+### Getting Help
+If you encounter issues:
+1. Check the [Implementation Guide](IMPLEMENTATION_GUIDE.md) for detailed technical information
+2. Ensure all required permissions are granted
+3. Verify printer is powered on and in discoverable mode
 
 # Acknowledgements
 I would like to express my gratitude to Deltec for fostering a friendly and supportive environment.

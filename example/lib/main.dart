@@ -279,7 +279,7 @@ class _ZebraPrinterAppState extends State<ZebraPrinterApp> {
           _statusMessage = "Print command sent to printer...";
         });
 
-        // Set a timeout to show success dialog if no native callback is received
+        // Set a backup timeout timer (30 seconds) in case native callbacks fail
         _startPrintTimeoutTimer();
       }
     } catch (e) {
@@ -833,14 +833,15 @@ class _ZebraPrinterAppState extends State<ZebraPrinterApp> {
     // Cancel any existing timer
     _printTimeoutTimer?.cancel();
 
-    // Start a 10-second timeout timer
-    _printTimeoutTimer = Timer(const Duration(seconds: 10), () {
+    // Start a 30-second backup timeout timer (longer since we expect native callbacks)
+    _printTimeoutTimer = Timer(const Duration(seconds: 30), () {
       if (mounted && _isPrinting) {
         setState(() {
           _statusMessage = null;
           _isPrinting = false;
+          _errorMessage =
+              "Print timeout - no response from printer within 30 seconds";
         });
-        _showPrintSuccessDialog();
       }
     });
   }

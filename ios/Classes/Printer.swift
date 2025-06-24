@@ -194,22 +194,96 @@ class Printer{
       DispatchQueue.main.async {
         self.setStatus(message: "Sending Data", color: self.connectingColor)
              }
+        
+        var printSuccessful = false
+        var errorMessage = ""
+        
         if self.isZebraPrinter == true {
               var error: NSError?
               let result = self.connection?.write(dataBytes, error: &error)
+              
               if result == -1, let error = error {
-                print(error)
+                print("iOS Print Error: \(error)")
+                errorMessage = "Connection error: \(error.localizedDescription)"
                 self.disconnect()
-                return
+              } else {
+                // Check if data was sent successfully
+                if result != nil && result! >= 0 {
+                    // Additional check using printer status if available
+                    if let zebraPrinter = ZebraPrinterFactory.getInstance(self.connection) {
+                        var statusError: NSError?
+                        if let printerStatus = zebraPrinter.getCurrentStatus(&statusError) {
+                            if printerStatus.isReadyToPrint {
+                                printSuccessful = true
+                            } else {
+                                // Check for specific error conditions
+                                if printerStatus.isPaperOut {
+                                    errorMessage = "Paper out"
+                                } else if printerStatus.isHeadOpen {
+                                    errorMessage = "Printer head open"
+                                } else if printerStatus.isPaused {
+                                    errorMessage = "Printer paused"
+                                } else if printerStatus.isHeadTooHot {
+                                    errorMessage = "Printer head too hot"
+                                } else if printerStatus.isHeadCold {
+                                    errorMessage = "Printer head too cold"
+                                } else if printerStatus.isRibbonOut {
+                                    errorMessage = "Ribbon out"
+                                } else {
+                                    errorMessage = "Printer not ready"
+                                }
+                            }
+                        } else {
+                            // Assume success if we can't get status but data was sent
+                            printSuccessful = true
+                        }
+                    } else {
+                        // Assume success if we can't get printer instance but data was sent
+                        printSuccessful = true
+                    }
+                } else {
+                    errorMessage = "Failed to send data to printer"
+                }
               }
         } else {
+            // Handle generic printer
             self.wifiManager?.posWriteCommand(with: dataBytes, withResponse: { (result) in
-                
+                if result {
+                    printSuccessful = true
+                } else {
+                    errorMessage = "Failed to send data to generic printer"
+                }
             })
+            
+            // Wait a bit for the generic printer response
+            sleep(1)
+            
+            // Check connection state for generic printer
+            if self.wifiManager?.connectOK == true {
+                printSuccessful = true
+            } else {
+                printSuccessful = false
+                if errorMessage.isEmpty {
+                    errorMessage = "Generic printer connection lost"
+                }
+            }
         }
+      
       sleep(1)
+        
         DispatchQueue.main.async {
-            self.setStatus(message: self.doneStr, color: self.connectedColor)
+            if printSuccessful {
+                // Send success callback to Flutter
+                self.methodChannel?.invokeMethod("onPrintComplete", arguments: nil)
+                self.setStatus(message: self.doneStr, color: self.connectedColor)
+            } else {
+                // Send error callback to Flutter
+                let errorArgs: [String: Any] = [
+                    "ErrorText": errorMessage
+                ]
+                self.methodChannel?.invokeMethod("onPrintError", arguments: errorArgs)
+                self.setStatus(message: "Print Error: \(errorMessage)", color: self.disconnectedColor)
+            }
         }
      }
     }

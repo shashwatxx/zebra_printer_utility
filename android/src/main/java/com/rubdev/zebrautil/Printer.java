@@ -24,6 +24,7 @@ import com.zebra.sdk.comm.BluetoothConnection;
 import com.zebra.sdk.comm.Connection;
 import com.zebra.sdk.comm.ConnectionException;
 import com.zebra.sdk.comm.TcpConnection;
+import com.zebra.sdk.printer.PrinterStatus;
 import com.zebra.sdk.printer.ZebraPrinter;
 import com.zebra.sdk.printer.ZebraPrinterFactory;
 import com.zebra.sdk.printer.ZebraPrinterLanguageUnknownException;
@@ -328,51 +329,158 @@ public class Printer implements MethodChannel.MethodCallHandler {
         }
     }
 
-    private void printDataGenericPrinter(String data) {
-        setStatus(context.getString(R.string.sending_data), context.getString(R.string.connectingColor));
-        socketmanager.threadconnectwrite(convertDataToByte(data));
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        if (socketmanager.getIstate()) {
-            setStatus(context.getResources().getString(R.string.done), context.getString(R.string.connectedColor));
-        } else {
-            setStatus(context.getResources().getString(R.string.disconnect), context.getString(R.string.disconnectColor));
-        }
-
-        byte[] sendCut = {0x0a, 0x0a, 0x1d, 0x56, 0x01};
-        socketmanager.threadconnectwrite(sendCut);
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        if (!socketmanager.getIstate()) {
-            setStatus(context.getResources().getString(R.string.disconnect)
-                    , context.getString(R.string.disconnectColor));
-        }
-    }
-
     private void printData(String data) {
         try {
             byte[] bytes = convertDataToByte(data);
             setStatus(context.getString(R.string.sending_data), context.getString(R.string.connectingColor));
+            
+            // Send data to printer
             printerConnection.write(bytes);
             DemoSleeper.sleep(1500);
 
             if (printerConnection instanceof BluetoothConnection) {
                 DemoSleeper.sleep(500);
             }
-            setStatus(context.getResources().getString(R.string.done), context.getString(R.string.connectedColor));
+            
+            // Check printer status to determine if print was successful
+            boolean printSuccessful = false;
+            String errorMessage = "";
+            
+            try {
+                // Get printer status to verify print completion
+                if (printer != null) {
+                    PrinterStatus printerStatus = printer.getCurrentStatus();
+                    
+                    if (printerStatus.isReadyToPrint) {
+                        printSuccessful = true;
+                        setStatus(context.getResources().getString(R.string.done), context.getString(R.string.connectedColor));
+                    } else {
+                        // Check for specific error conditions
+                        if (printerStatus.isPaperOut) {
+                            errorMessage = "Paper out";
+                        } else if (printerStatus.isHeadOpen) {
+                            errorMessage = "Printer head open";
+                        } else if (printerStatus.isPaused) {
+                            errorMessage = "Printer paused";
+                        } else if (printerStatus.isHeadTooHot) {
+                            errorMessage = "Printer head too hot";
+                        } else if (printerStatus.isHeadCold) {
+                            errorMessage = "Printer head too cold";
+                        } else if (printerStatus.isRibbonOut) {
+                            errorMessage = "Ribbon out";
+                        } else {
+                            errorMessage = "Printer not ready";
+                        }
+                    }
+                } else {
+                    printSuccessful = true; // Assume success if we can't check status
+                }
+            } catch (ConnectionException e) {
+                errorMessage = "Failed to get printer status: " + e.getMessage();
+            }
+            
             DemoSleeper.sleep(200);
-            setStatus(context.getResources().getString(R.string.connected), context.getString(R.string.connectedColor));
+            
+            // Send appropriate callback to Flutter
+            if (printSuccessful) {
+                // Send success callback on main thread
+                ((Activity) context).runOnUiThread(() -> {
+                    methodChannel.invokeMethod("onPrintComplete", null);
+                    setStatus(context.getResources().getString(R.string.connected), context.getString(R.string.connectedColor));
+                });
+            } else {
+                // Send error callback on main thread
+                final String finalErrorMessage = errorMessage;
+                ((Activity) context).runOnUiThread(() -> {
+                    HashMap<String, Object> errorArgs = new HashMap<>();
+                    errorArgs.put("ErrorText", finalErrorMessage);
+                    methodChannel.invokeMethod("onPrintError", errorArgs);
+                    setStatus("Print Error: " + finalErrorMessage, context.getString(R.string.disconnectColor));
+                });
+            }
+            
         } catch (ConnectionException e) {
+            // Send error callback for connection issues on main thread
+            ((Activity) context).runOnUiThread(() -> {
+                HashMap<String, Object> errorArgs = new HashMap<>();
+                errorArgs.put("ErrorText", "Connection error: " + e.getMessage());
+                methodChannel.invokeMethod("onPrintError", errorArgs);
+            });
             disconnect();
+        } catch (Exception e) {
+            // Send error callback for any other issues on main thread
+            ((Activity) context).runOnUiThread(() -> {
+                HashMap<String, Object> errorArgs = new HashMap<>();
+                errorArgs.put("ErrorText", "Print failed: " + e.getMessage());
+                methodChannel.invokeMethod("onPrintError", errorArgs);
+            });
         }
     }
 
+    private void printDataGenericPrinter(String data) {
+        try {
+            setStatus(context.getString(R.string.sending_data), context.getString(R.string.connectingColor));
+            socketmanager.threadconnectwrite(convertDataToByte(data));
+            
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            
+            boolean printSuccessful = false;
+            String errorMessage = "";
+            
+            if (socketmanager.getIstate()) {
+                setStatus(context.getResources().getString(R.string.done), context.getString(R.string.connectedColor));
+                printSuccessful = true;
+            } else {
+                errorMessage = "Connection lost during printing";
+                setStatus(context.getResources().getString(R.string.disconnect), context.getString(R.string.disconnectColor));
+            }
+
+            // Send cut command for generic printers
+            byte[] sendCut = {0x0a, 0x0a, 0x1d, 0x56, 0x01};
+            socketmanager.threadconnectwrite(sendCut);
+            
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            
+            // Final status check after cut command
+            if (!socketmanager.getIstate()) {
+                printSuccessful = false;
+                errorMessage = "Connection lost after printing";
+                setStatus(context.getResources().getString(R.string.disconnect), context.getString(R.string.disconnectColor));
+            }
+            
+            // Send appropriate callback to Flutter
+            if (printSuccessful) {
+                // Send success callback on main thread
+                ((Activity) context).runOnUiThread(() -> {
+                    methodChannel.invokeMethod("onPrintComplete", null);
+                });
+            } else {
+                // Send error callback on main thread
+                final String finalErrorMessage = errorMessage;
+                ((Activity) context).runOnUiThread(() -> {
+                    HashMap<String, Object> errorArgs = new HashMap<>();
+                    errorArgs.put("ErrorText", finalErrorMessage);
+                    methodChannel.invokeMethod("onPrintError", errorArgs);
+                });
+            }
+            
+        } catch (Exception e) {
+            // Send error callback for any issues on main thread
+            ((Activity) context).runOnUiThread(() -> {
+                HashMap<String, Object> errorArgs = new HashMap<>();
+                errorArgs.put("ErrorText", "Generic printer error: " + e.getMessage());
+                methodChannel.invokeMethod("onPrintError", errorArgs);
+            });
+        }
+    }
 
     public void connectToSelectPrinter(String address) {
         isZebraPrinter = true;
