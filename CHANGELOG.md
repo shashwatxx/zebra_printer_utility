@@ -51,3 +51,9 @@ Applied coding best practices, including proper resource management and context 
 * Fix example App
 * update android files
 * new publishing
+
+## 1.5.1
+* Add better error handling
+
+## 1.5.2
+* Add type for isPrinterConnected
