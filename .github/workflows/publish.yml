@@ -1,0 +1,100 @@
+name: Bump Version and Publish to OnePub
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  bump-and-publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: stable
+
+      - name: Install dependencies
+        run: |
+          dart pub global activate cider
+          flutter pub get
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Bump version
+        run: |
+          case ${{ inputs.version_bump }} in
+            patch)
+              cider bump patch
+              ;;
+            minor)
+              cider bump minor
+              ;;
+            major)
+              cider bump major
+              ;;
+          esac
+
+      - name: Get new version
+        id: version
+        run: |
+          NEW_VERSION=$(cider version)
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Commit version bump
+        run: |
+          git add pubspec.yaml CHANGELOG.md
+          git commit -m "Bump version to ${{ steps.version.outputs.new_version }}"
+
+      - name: Create and push tag
+        run: |
+          git tag "v${{ steps.version.outputs.new_version }}"
+          git push origin main
+          git push origin "v${{ steps.version.outputs.new_version }}"
+
+      - name: Setup OnePub credentials
+        run: |
+          mkdir -p ~/.config/dart
+          echo '${{ secrets.ONEPUB_TOKEN }}' > ~/.config/dart/pub-credentials.json
+
+      - name: Publish to OnePub
+        run: |
+          dart pub publish --force
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.version.outputs.new_version }}
+          release_name: Release v${{ steps.version.outputs.new_version }}
+          body: |
+            Version ${{ steps.version.outputs.new_version }}
+            
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          draft: false
+          prerelease: false 
