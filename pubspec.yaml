@@ -1,6 +1,6 @@
 name: zebrautil
 description: A plugin for working with zebra printers in flutter
-version: 1.5.1
+version: 1.5.2
 repository: https://github.com/shashwatxx/zebra_printer_utility
 
 publish_to: https://onepub.dev/api/kjhxxpsdav/
