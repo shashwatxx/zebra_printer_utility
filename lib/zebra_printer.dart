@@ -517,19 +517,34 @@ class ZebraPrinter {
 
   /// Checks if the printer is currently connected
   ///
+  /// Returns [true] if printer is connected, [false] otherwise
   /// Throws [ZebraPrinterException] if the check fails
-  Future<void> isPrinterConnected() async {
+  Future<bool> isPrinterConnected() async {
     _ensureNotDisposed();
 
     try {
-      await _channel
+      final dynamic result = await _channel
           .invokeMethod(_ZebraPrinterConstants.isPrinterConnected)
           .timeout(_ZebraPrinterConstants.operationTimeout);
+
+      // Convert the result to boolean
+      // Native code returns connection status as string
+      if (result is String) {
+        // Check if the status indicates connection
+        final String status = result.toLowerCase();
+        return status.contains('connected') && !status.contains('disconnect');
+      } else if (result is bool) {
+        return result;
+      }
+
+      // Default to false if result is unexpected
+      return false;
     } on TimeoutException {
       throw const ZebraPrinterException(
           'Timeout while checking printer connection');
     } on PlatformException catch (e) {
       _handlePlatformException(e);
+      return false;
     } catch (e) {
       throw ZebraPrinterException('Failed to check printer connection: $e',
           originalError: e);
