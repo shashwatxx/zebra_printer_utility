@@ -77,14 +77,30 @@ public class BluetoothDiscoverer {
     }
 
     public static void stopBluetoothDiscovery() {
+        System.out.println("ZebraUtil: Stopping Bluetooth discovery...");
         isDiscoveryActive = false;
+        
         if (bluetoothDiscoverer != null) {
-            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter != null && adapter.isDiscovering()) {
-                adapter.cancelDiscovery();
+            try {
+                BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+                if (adapter != null && adapter.isDiscovering()) {
+                    System.out.println("ZebraUtil: Cancelling active Bluetooth discovery...");
+                    adapter.cancelDiscovery();
+                    
+                    // Wait a bit for discovery to stop
+                    Thread.sleep(500);
+                }
+                
+                // Unregister receivers with timeout
+                bluetoothDiscoverer.unregisterTopLevelReceivers(bluetoothDiscoverer.mContext);
+                
+                System.out.println("ZebraUtil: Bluetooth discovery stopped successfully");
+                
+            } catch (Exception e) {
+                System.out.println("ZebraUtil: Error stopping Bluetooth discovery: " + e.getMessage());
+            } finally {
+                bluetoothDiscoverer = null;
             }
-            bluetoothDiscoverer.unregisterTopLevelReceivers(bluetoothDiscoverer.mContext);
-            bluetoothDiscoverer = null;
         }
     }
 

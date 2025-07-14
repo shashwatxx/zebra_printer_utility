@@ -62,6 +62,9 @@ public class Printer implements MethodChannel.MethodCallHandler {
     private static boolean isBluetoothDiscoveryActive = false;
     private static boolean isNetworkDiscoveryActive = false;
     private static int activeDiscoveryCount = 0;
+    
+    // Note: Zebra SDK's NetworkDiscoverer doesn't have a stop method
+    // We track state and filter callbacks when discovery is "stopped"
 
 
     public Printer(ActivityPluginBinding binding, BinaryMessenger binaryMessenger) {
@@ -77,10 +80,59 @@ public class Printer implements MethodChannel.MethodCallHandler {
         try {
             System.out.println("ZebraUtil: Starting printer discovery...");
             sendedDiscoveredPrinters.clear();
+            
+            // Stop any existing discovery before starting new one
+            try {
+                if (isBluetoothDiscoveryActive || isNetworkDiscoveryActive) {
+                    System.out.println("ZebraUtil: Stopping existing discovery processes...");
+                    BluetoothDiscoverer.stopBluetoothDiscovery();
+                    // Note: NetworkDiscoverer doesn't have a stop method - it stops automatically
+                    isBluetoothDiscoveryActive = false;
+                    isNetworkDiscoveryActive = false;
+                    activeDiscoveryCount = 0;
+                    
+                    // Wait a bit for cleanup
+                    Thread.sleep(1000);
+                }
+            } catch (Exception e) {
+                System.out.println("ZebraUtil: Error stopping existing discovery: " + e.getMessage());
+            }
+            
             for (DiscoveredPrinter dp :
                     discoveredPrinters) {
                 addNewDiscoverPrinter(dp, context, methodChannel);
             }
+            
+            // Add timeout for overall discovery process
+            Thread discoveryTimeoutThread = new Thread(() -> {
+                try {
+                    Thread.sleep(45000); // 45 second timeout for discovery
+                    
+                    if (isBluetoothDiscoveryActive || isNetworkDiscoveryActive) {
+                        System.out.println("ZebraUtil: Discovery timed out, stopping all processes...");
+                        
+                        BluetoothDiscoverer.stopBluetoothDiscovery();
+                        // Note: NetworkDiscoverer stops automatically, just reset our tracking
+                        
+                        isBluetoothDiscoveryActive = false;
+                        isNetworkDiscoveryActive = false;
+                        activeDiscoveryCount = 0;
+                        
+                        // Send timeout error
+                        ((Activity) context).runOnUiThread(() -> {
+                            HashMap<String, Object> arguments = new HashMap<>();
+                            arguments.put("ErrorCode", ON_DISCOVERY_ERROR_GENERAL);
+                            arguments.put("ErrorText", "Discovery timed out after 45 seconds");
+                            methodChannel.invokeMethod("onDiscoveryError", arguments);
+                        });
+                    }
+                } catch (InterruptedException e) {
+                    System.out.println("ZebraUtil: Discovery timeout monitor interrupted");
+                }
+            });
+            
+            discoveryTimeoutThread.start();
+            
             // Start Network discovery
             System.out.println("ZebraUtil: Starting Network discovery...");
             isNetworkDiscoveryActive = true;
@@ -88,14 +140,20 @@ public class Printer implements MethodChannel.MethodCallHandler {
             NetworkDiscoverer.findPrinters(new DiscoveryHandlerCustom() {
                 @Override
                 public void foundPrinter(DiscoveredPrinter discoveredPrinter) {
-                    System.out.println("ZebraUtil: Network printer found: " + discoveredPrinter.address);
-                    addNewDiscoverPrinter(discoveredPrinter, context, methodChannel);
+                    // Only process if network discovery is still active
+                    if (isNetworkDiscoveryActive) {
+                        System.out.println("ZebraUtil: Network printer found: " + discoveredPrinter.address);
+                        addNewDiscoverPrinter(discoveredPrinter, context, methodChannel);
+                    }
                 }
 
                 @Override
                 public void printerOutOfRange(DiscoveredPrinter discoverPrinter) {
-                    System.out.println("ZebraUtil: Network printer out of range: " + discoverPrinter.address);
-                    removeDiscoverPrinter(discoverPrinter,context,methodChannel);
+                    // Only process if network discovery is still active
+                    if (isNetworkDiscoveryActive) {
+                        System.out.println("ZebraUtil: Network printer out of range: " + discoverPrinter.address);
+                        removeDiscoverPrinter(discoverPrinter,context,methodChannel);
+                    }
                 }
 
                 @Override
@@ -307,12 +365,39 @@ public class Printer implements MethodChannel.MethodCallHandler {
 
 
     public void print(final String data) {
-        new Thread(() -> {
+        Thread printThread = new Thread(() -> {
             Looper.prepare();
             doConnectionTest(data);
             Looper.loop();
             Objects.requireNonNull(Looper.myLooper()).quit();
-        }).start();
+        });
+        
+        // Start the print thread
+        printThread.start();
+        
+        // Add timeout monitoring
+        Thread timeoutThread = new Thread(() -> {
+            try {
+                // Wait for print thread to complete with timeout
+                printThread.join(30000); // 30 second timeout
+                
+                if (printThread.isAlive()) {
+                    System.out.println("ZebraUtil: Print operation timed out, interrupting...");
+                    printThread.interrupt();
+                    
+                    // Send timeout error to Flutter
+                    ((Activity) context).runOnUiThread(() -> {
+                        HashMap<String, Object> errorArgs = new HashMap<>();
+                        errorArgs.put("ErrorText", "Print operation timed out after 30 seconds");
+                        methodChannel.invokeMethod("onPrintError", errorArgs);
+                    });
+                }
+            } catch (InterruptedException e) {
+                System.out.println("ZebraUtil: Print timeout monitor interrupted");
+            }
+        });
+        
+        timeoutThread.start();
     }
 
 
@@ -495,7 +580,33 @@ public class Printer implements MethodChannel.MethodCallHandler {
             this.selectedAddress = address;
             isBluetoothPrinter = false;
         }
-        printer = connect(isBluetoothPrinter);
+        
+        // Add timeout for connection
+        Thread connectionThread = new Thread(() -> {
+            printer = connect(isBluetoothPrinter);
+        });
+        
+        connectionThread.start();
+        
+        // Monitor connection with timeout
+        Thread timeoutThread = new Thread(() -> {
+            try {
+                connectionThread.join(30000); // 30 second timeout
+                
+                if (connectionThread.isAlive()) {
+                    System.out.println("ZebraUtil: Connection timed out, interrupting...");
+                    connectionThread.interrupt();
+                    
+                    // Cleanup and set error status
+                    disconnect();
+                    setStatus("Connection timed out", context.getString(R.string.disconnectColor));
+                }
+            } catch (InterruptedException e) {
+                System.out.println("ZebraUtil: Connection timeout monitor interrupted");
+            }
+        });
+        
+        timeoutThread.start();
     }
 
     public String isPrinterConnect() {
@@ -562,13 +673,21 @@ public class Printer implements MethodChannel.MethodCallHandler {
     }
 
     public void stopScan(){
+        System.out.println("ZebraUtil: Stopping all discovery processes...");
+        
         // Stop Bluetooth discovery
         BluetoothDiscoverer.stopBluetoothDiscovery();
+        
+        // Note: NetworkDiscoverer doesn't have a stop method in Zebra SDK
+        // It automatically stops when discovery completes or times out
+        // We just reset our tracking variables
         
         // Reset tracking variables
         isBluetoothDiscoveryActive = false;
         isNetworkDiscoveryActive = false;
         activeDiscoveryCount = 0;
+        
+        System.out.println("ZebraUtil: Discovery processes stopped (Bluetooth stopped, Network will auto-complete)");
     }
 
 
@@ -591,9 +710,13 @@ public class Printer implements MethodChannel.MethodCallHandler {
             }
         }
         try {
+            System.out.println("ZebraUtil: Opening printer connection...");
             printerConnection.open();
+            System.out.println("ZebraUtil: Printer connection opened successfully");
 
         } catch (ConnectionException e) {
+            System.out.println("ZebraUtil: Connection failed: " + e.getMessage());
+            setStatus("Connection failed: " + e.getMessage(), context.getString(R.string.disconnectColor));
             DemoSleeper.sleep(1000);
             disconnect();
             return null;
@@ -740,6 +863,7 @@ public class Printer implements MethodChannel.MethodCallHandler {
     public void onMethodCall(@NonNull final MethodCall call, @NonNull final MethodChannel.Result result) {
         if (call.method.equals("print")) {
             print(call.argument("Data").toString());
+            result.success(true);
         } else if (call.method.equals("checkPermission")) {
             checkPermission(context, result);
         } else if (call.method.equals("convertBase64ImageToZPLString")) {
@@ -754,9 +878,14 @@ public class Printer implements MethodChannel.MethodCallHandler {
             result.success(isPrinterConnect());
         } else if (call.method.equals("startScan")) {
             if (checkIsLocationNetworkProviderIsOn()) {
-                startScanning(context, methodChannel);
+                // Start scanning in background and return immediately
+                new Thread(() -> {
+                    startScanning(context, methodChannel);
+                }).start();
+                result.success(true);
             } else {
                 onDiscoveryError(context, methodChannel, ON_DISCOVERY_ERROR_LOCATION, "Your location service is off.");
+                result.success(false);
             }
 
         } else if (call.method.equals("setMediaType")) {
@@ -777,7 +906,11 @@ public class Printer implements MethodChannel.MethodCallHandler {
         } else if (call.method.equals("connectToGenericPrinter")) {
             connectToGenericPrinter(call.argument("Address").toString());
         } else if (call.method.equals("stopScan")) {
-            stopScan();
+            // Stop scanning in background and return immediately
+            new Thread(() -> {
+                stopScan();
+            }).start();
+            result.success(true);
         } else if (call.method.equals("getLocateValue")){
             String resourceKey = call.argument("ResourceKey");
             @SuppressLint("DiscouragedApi") int resId = context.getResources().getIdentifier(resourceKey, "string", context.getPackageName());

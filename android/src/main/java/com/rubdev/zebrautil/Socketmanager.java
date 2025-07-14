@@ -22,7 +22,7 @@ public class Socketmanager
 	public  String mstrIp="192.168.1.248";
 	public  int mPort=9100;
 	
-	int TimeOut=1300;
+	int TimeOut=5000; // Increase timeout from 1.3s to 5s
 	public boolean getIstate () {
 		return iState;
 	}
