@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.5.3] - 2024-07-14
+## [1.5.4] - 2024-07-14
 ### Added
 - Remove Max Data Length Validation
 
