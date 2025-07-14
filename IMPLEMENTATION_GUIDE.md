@@ -172,9 +172,6 @@ void _validatePrintData(String data) {
   if (data.isEmpty) {
     throw const ZebraValidationException('Print data cannot be empty');
   }
-  if (data.length > _ZebraPrinterConstants.maxDataLength) {
-    throw const ZebraValidationException('Print data exceeds maximum length');
-  }
 }
 ```
 

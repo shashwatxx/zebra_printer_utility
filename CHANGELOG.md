@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.5.3] - 2024-07-14
 ### Added
+- Remove Max Data Length Validation
+
+## [1.5.3] - 2024-07-14
+### Added
 - Fix false TimeOut Errors
 
 ## [1.5.2] - 2024-01-15

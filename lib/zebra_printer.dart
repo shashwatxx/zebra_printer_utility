@@ -94,7 +94,6 @@ class _ZebraPrinterConstants {
     200
   ];
   static const int maxAddressLength = 255;
-  static const int maxDataLength = 65536; // 64KB limit for ZPL data
 
   // Timeouts
   static const Duration operationTimeout = Duration(seconds: 30);
@@ -802,10 +801,6 @@ class ZebraPrinter {
   void _validatePrintData(String data) {
     if (data.isEmpty) {
       throw const ZebraValidationException('Print data cannot be empty');
-    }
-
-    if (data.length > _ZebraPrinterConstants.maxDataLength) {
-      throw const ZebraValidationException('Print data exceeds maximum length');
     }
   }
 
