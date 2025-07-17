@@ -1,6 +1,6 @@
 name: zebrautil
-description: A plugin for working with zebra printers in flutter
-version: 1.5.4
+description: A comprehensive Flutter plugin for Zebra printers with Firebase-style singleton API, type safety, and reactive programming
+version: 2.0.0
 repository: https://github.com/shashwatxx/zebra_printer_utility
 
 publish_to: https://onepub.dev/api/kjhxxpsdav/

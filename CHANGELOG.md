@@ -1,88 +1,87 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [2.0.0] - 2024-12-19
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+### 🚀 MAJOR UPDATE: New Singleton API
 
-## [Unreleased]
+This is a **major release** introducing a modern, type-safe singleton API that follows the Firebase initialization pattern.
 
-## [1.5.4] - 2024-07-14
-### Added
-- Remove Max Data Length Validation
+#### ✨ New Features
 
-## [1.5.3] - 2024-07-14
-### Added
-- Fix false TimeOut Errors
+- **🔥 Singleton API**: Firebase-style initialization with `ZebraUtility.initialize()`
+- **📊 Reactive Programming**: Real-time streams for discovery, print jobs, and connections
+- **🛡️ Enhanced Error Handling**: Structured `ZebraResult<T>` responses with detailed error information
+- **🔧 Type Safety**: Full type-safe API with validation and proper error messages
+- **📋 State Management**: Automatic state synchronization and cleanup
+- **🎯 Configuration System**: Comprehensive configuration options with `ZebraConfig`
+- **📡 Event Streams**: Real-time updates via `discoveryStream`, `printStream`, and `connectionStream`
+- **🏷️ Print Job Tracking**: Track print jobs with IDs, status, and completion times
+- **📋 Discovery Sessions**: Structured discovery sessions with status tracking
 
-## [1.5.2] - 2024-01-15
-### Added
-- Add type for isPrinterConnected
+#### 📚 New API Components
 
-## [1.5.1] - 2024-01-10
-### Fixed
-- Add better error handling
+- `ZebraUtility` - Main singleton class
+- `ZebraConfig` - Configuration options
+- `ZebraResult<T>` - Type-safe result wrapper
+- `ZebraError` - Structured error information
+- `PrintJob` - Print job tracking
+- `DiscoverySession` - Discovery session management
+- Multiple enums for type safety (`ConnectionType`, `PrintJobStatus`, `DiscoveryStatus`, `ErrorType`)
 
-## [1.5.0] - 2024-01-05
-### Fixed
-- Fix example App
-- Update android files
-### Changed
-- New publishing process
+#### 🔄 Backward Compatibility
 
-## [1.4.42] - 2023-12-20
-### Fixed
-- Fix error in Printer class, devices were duplicated
-- Persist printer connected
+- **Legacy API Preserved**: All existing `ZebraUtil` and `ZebraPrinter` APIs remain functional
+- **Gradual Migration**: Users can migrate at their own pace
+- **Documentation**: Comprehensive migration guide provided
 
-## [1.4.41] - 2023-12-15
-### Added
-- Support Spanish language
-### Fixed
-- Synchronize printer once the scan has been restarted
+#### 📖 Documentation
 
-## [1.3.41] - 2023-12-01
-### Added
-- Automatic Bluetooth Device Scanning: Implemented continuous scanning for nearby Bluetooth devices to improve device discovery without manual intervention
-- Added background listening for Bluetooth device connections and disconnections, ensuring real-time updates for device availability
+- Added `NEW_API_GUIDE.md` with complete documentation
+- Migration guide from legacy to new API
+- Best practices and troubleshooting
+- Complete example implementation
 
-### Changed
-- Code Quality Enhancements: Refactored Bluetooth scanning logic to optimize memory usage and prevent potential memory leaks
-- Improved thread management to prevent excessive thread creation during Bluetooth operations
-- Applied coding best practices, including proper resource management and context handling, to improve maintainability and performance
+#### 🎯 Usage
 
-## [0.3.41] - 2023-11-15
-### Changed
-- Dynamically disconnect the current printer when the user selects a different one
-- Change the color and update the state once the printer is disconnected
+```dart
+// Initialize once in main()
+await ZebraUtility.initialize(
+  config: ZebraConfig(enableDebugLogging: true)
+);
 
-## [0.2.41] - 2023-11-10
-### Changed
-- Update view based on printer state
+// Use anywhere in your app
+final zebra = ZebraUtility.instance;
+final result = await zebra.startDiscovery();
+```
 
-## [0.1.41] - 2023-11-05
-### Fixed
-- Avoid duplicate devices
-- Improve list devices example
+### 🛠️ Improvements
 
-## [0.0.41] - 2023-10-20
-### Added
-- Include ZebraUtilPlugin.java in the repository
+- **Enhanced Documentation**: Updated README with new API examples
+- **Better Type Safety**: Comprehensive type checking and validation
+- **Improved Error Messages**: More specific and actionable error information
+- **Performance Optimizations**: Better resource management and cleanup
 
-## [0.0.40] - 2023-10-15
-### Changed
-- Upgrade dependencies
-- Enhance code quality and eliminate unnecessary code
+### 📋 Files Added
 
-## [0.0.39] - 2023-10-10
-### Changed
-- Updated native code
+- `lib/zebra_utility.dart` - Main singleton API
+- `lib/zebrautil.dart` - Library exports
+- `NEW_API_GUIDE.md` - Comprehensive API documentation
+- `example/lib/new_api_example.dart` - Complete example implementation
 
-## [0.0.38] - 2023-10-05
-### Fixed
-- Fix bug in getting instance
-- Improve performance for request local network
+---
 
-## [0.0.34] - 2023-09-30
-### Added
-- Request access for local network in iOS
+## [1.5.4] - Previous Release
+
+### 🛠️ Recent Improvements
+- ✅ **Fixed Threading Crashes**: Resolved `Methods marked with @UiThread must be executed on the main thread` errors
+- ✅ **Enhanced Print Callbacks**: Real-time print completion and error detection
+- ✅ **Improved Stability**: Thread-safe method channel communications
+- ✅ **Better Error Handling**: Specific error messages for different printer states
+
+### ✨ Key Features
+- **Stable & Crash-Free**: Fixed critical threading issues for reliable printing
+- **Discovery**: Bluetooth and WiFi printers on Android, Bluetooth printers on iOS
+- **Easy Connection**: Connect and disconnect to printers seamlessly
+- **ZPL Commands**: Set mediatype, darkness, calibrate without writing ZPL code
+- **Print Rotation**: Rotate ZPL without changing your existing code
+- **Real-time Callbacks**: Get immediate feedback on print success/failure

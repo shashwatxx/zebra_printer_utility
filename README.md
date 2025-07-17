@@ -1,22 +1,55 @@
 # Flutter ZebraUtil
 
-## 🚀 Enhanced & Production-Ready
+## 🚀 NEW: Modern Singleton API Available!
 
-Zebra utility is a plugin for working easily with zebra printers in your flutter project.
+> **⚡ Major Update**: We've introduced a **brand new singleton API** that follows the Firebase initialization pattern! This provides better type safety, error handling, and reactive programming capabilities.
+
+### 🌟 Choose Your API Style
+
+#### 🔥 **New Singleton API** (Recommended)
+```dart
+// Initialize once in main()
+await ZebraUtility.initialize(
+  config: ZebraConfig(enableDebugLogging: true)
+);
+
+// Use anywhere in your app
+final zebra = ZebraUtility.instance;
+await zebra.startDiscovery();
+```
+**[📖 View Complete New API Guide →](NEW_API_GUIDE.md)**
+
+#### 📱 **Legacy API** (Still Supported)
+```dart
+final printer = await ZebraUtil.getPrinterInstance();
+await printer.startScanning();
+```
+
+---
+
+Zebra utility is a production-ready plugin for working with Zebra printers in your Flutter project.
 
 ### ✨ Key Features
-  - **Stable & Crash-Free**: Fixed critical threading issues for reliable printing
-  - **Discovery**: Bluetooth and WiFi printers on Android, Bluetooth printers on iOS
-  - **Easy Connection**: Connect and disconnect to printers seamlessly
-  - **ZPL Commands**: Set mediatype, darkness, calibrate without writing ZPL code
-  - **Print Rotation**: Rotate ZPL without changing your existing code
-  - **Real-time Callbacks**: Get immediate feedback on print success/failure
+  - **🔥 NEW: Singleton API** - Firebase-style initialization with type-safe operations
+  - **📊 Reactive Programming** - Real-time streams for discovery, print jobs, and connections
+  - **🛡️ Enhanced Error Handling** - Structured error responses with detailed information
+  - **🔧 Type Safety** - Full TypeScript-style type safety for all operations
+  - **⚡ Stable & Crash-Free** - Fixed critical threading issues for reliable printing
+  - **🔍 Discovery** - Bluetooth and WiFi printers on Android, Bluetooth printers on iOS
+  - **🔗 Easy Connection** - Connect and disconnect to printers seamlessly
+  - **⚙️ ZPL Commands** - Set mediatype, darkness, calibrate without writing ZPL code
+  - **🔄 Print Rotation** - Rotate ZPL without changing your existing code
+  - **📡 Real-time Callbacks** - Get immediate feedback on print success/failure
 
-### 🛠️ Recent Improvements
-- ✅ **Fixed Threading Crashes**: Resolved `Methods marked with @UiThread must be executed on the main thread` errors
-- ✅ **Enhanced Print Callbacks**: Real-time print completion and error detection
-- ✅ **Improved Stability**: Thread-safe method channel communications
-- ✅ **Better Error Handling**: Specific error messages for different printer states
+### 🛠️ Recent Major Improvements
+- ✅ **🚀 NEW Singleton API**: Firebase-style initialization with comprehensive type safety
+- ✅ **📊 Reactive Streams**: Real-time event streams for all printer operations
+- ✅ **🛡️ Enhanced Error Handling**: Structured `ZebraResult<T>` responses with detailed error information
+- ✅ **🔧 Type Safety**: Full type-safe API with validation and proper error messages
+- ✅ **🧵 Fixed Threading Crashes**: Resolved `Methods marked with @UiThread must be executed on the main thread` errors
+- ✅ **📡 Enhanced Print Callbacks**: Real-time print completion and error detection
+- ✅ **🔒 Improved Stability**: Thread-safe method channel communications
+- ✅ **📋 State Management**: Automatic state synchronization and cleanup
 
 
 # Installation
@@ -49,7 +82,98 @@ Include the necessary permission in the Android Manifest.
 Add `Supported external accessory protocols` in your `info.plist` and then add `com.zebra.rawport`to its.
 Add `Privacy - Local Network Usage Description` in your `info.plist`.
 
-# Example
+# Quick Start Examples
+
+## 🔥 New Singleton API (Recommended)
+
+### Initialize Once in Main
+```dart
+import 'package:zebrautil/zebrautil.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize ZebraUtility (similar to Firebase.initializeApp())
+  final initResult = await ZebraUtility.initialize(
+    config: ZebraConfig(
+      enableDebugLogging: true,
+      operationTimeout: Duration(seconds: 30),
+    ),
+  );
+  
+  if (initResult.isSuccess) {
+    print('ZebraUtility initialized successfully!');
+  }
+  
+  runApp(MyApp());
+}
+```
+
+### Use Anywhere in Your App
+```dart
+class PrinterWidget extends StatefulWidget {
+  @override
+  _PrinterWidgetState createState() => _PrinterWidgetState();
+}
+
+class _PrinterWidgetState extends State<PrinterWidget> {
+  late ZebraUtility zebra;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Get singleton instance
+    zebra = ZebraUtility.instance;
+    
+    // Setup reactive listeners
+    zebra.discoveryStream.listen((session) {
+      print('Found ${session.discoveredDevices.length} devices');
+    });
+    
+    zebra.printStream.listen((printJob) {
+      print('Print job ${printJob.id}: ${printJob.status}');
+    });
+  }
+
+  Future<void> _discoverAndPrint() async {
+    // Start discovery with proper error handling
+    final discoveryResult = await zebra.startDiscovery();
+    if (!discoveryResult.isSuccess) {
+      print('Discovery failed: ${discoveryResult.error?.message}');
+      return;
+    }
+
+    // Wait for devices (or use stream listener)
+    await Future.delayed(Duration(seconds: 3));
+    
+    if (zebra.discoveredDevices.isEmpty) {
+      print('No devices found');
+      return;
+    }
+
+    // Connect to first device
+    final device = zebra.discoveredDevices.first;
+    final connectResult = await zebra.connect(device);
+    if (!connectResult.isSuccess) {
+      print('Connection failed: ${connectResult.error?.message}');
+      return;
+    }
+
+    // Print with job tracking
+    final printResult = await zebra.print('^XA^FO50,50^FDHello World^FS^XZ');
+    if (printResult.isSuccess) {
+      print('Print job started: ${printResult.data!.id}');
+    }
+  }
+}
+```
+
+**[📖 Complete New API Documentation →](NEW_API_GUIDE.md)**
+
+---
+
+## 📱 Legacy API Example
 ## Getting Started
 There is a static class that allows you to create different instances of ZebraPrinter.
 ```sh
