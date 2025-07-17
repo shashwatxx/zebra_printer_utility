@@ -993,7 +993,7 @@ class ZebraController extends ChangeNotifier {
       case 'G':
         return Colors.green;
       default:
-        return Colors.grey.withOpacity(0.6);
+        return Colors.grey.withValues(alpha: 0.6);
     }
   }
 

@@ -206,6 +206,7 @@ class ZebraUtility {
 
   late final ZebraPrinter _printer;
   late final ZebraController _controller;
+  // ignore: unused_field , this is used to identify the instance
   late final String _instanceId;
 
   final StreamController<DiscoverySession> _discoveryController =
