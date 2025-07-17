@@ -3,6 +3,14 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:zebrautil/zebra_printer.dart';
 
+/// Legacy API - Use ZebraUtility for new projects
+/// 
+/// This class is kept for backward compatibility.
+/// For new projects, use the singleton pattern:
+/// ```dart
+/// await ZebraUtility.initialize();
+/// final zebra = ZebraUtility.instance;
+/// ```
 class ZebraUtil {
   static const MethodChannel _channel = const MethodChannel('zebrautil');
 
