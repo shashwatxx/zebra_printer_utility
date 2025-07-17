@@ -50,7 +50,7 @@ class ZebraConfig {
 }
 
 /// Connection type preferences
-enum ConnectionType { bluetooth, wifi, any }
+enum ConnectionType { bluetooth, wifi }
 
 /// Print job status
 enum PrintJobStatus { queued, printing, completed, failed, cancelled }
@@ -339,6 +339,9 @@ class ZebraUtility {
     _printer.setOnPrintError((errorMessage) {
       _handlePrintError(errorMessage);
     });
+
+    // Listen to real-time controller changes for discovered devices
+    _controller.addListener(_onControllerChanged);
   }
 
   /// Start discovering printers
@@ -701,6 +704,32 @@ class ZebraUtility {
     }
   }
 
+  /// Handle real-time controller changes (when devices are discovered)
+  void _onControllerChanged() {
+    // Update the current discovery session with new devices
+    final session = _currentDiscoverySession;
+
+    if (_config?.enableDebugLogging == true) {
+      developer.log(
+          'Controller changed: ${_controller.printers.length} devices, session status: ${session?.status}',
+          name: 'ZebraUtility');
+    }
+
+    if (session != null && session.status == DiscoveryStatus.scanning) {
+      final updatedSession = session.copyWith(
+        discoveredDevices: _controller.printers,
+      );
+      _currentDiscoverySession = updatedSession;
+      _discoveryController.add(updatedSession);
+
+      if (_config?.enableDebugLogging == true) {
+        developer.log(
+            'Discovery session updated: ${_controller.printers.length} devices found',
+            name: 'ZebraUtility');
+      }
+    }
+  }
+
   /// Validate device data
   void _validateDevice(ZebraDevice device) {
     if (device.address.isEmpty) {
@@ -745,6 +774,9 @@ class ZebraUtility {
       if (_connectedDevice != null) {
         await disconnect();
       }
+
+      // Remove controller listener
+      _controller.removeListener(_onControllerChanged);
 
       // Close streams
       await _discoveryController.close();
