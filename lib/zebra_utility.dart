@@ -1163,6 +1163,14 @@ class ZebraUtility {
   /// Load stored printer information from persistence
   Future<void> _loadStoredPrinterInfo() async {
     try {
+      if (_config?.storageKey == null) {
+        if (_config?.enableDebugLogging == true) {
+          developer.log('No storage key configured, skipping load',
+              name: 'ZebraUtility');
+        }
+        return;
+      }
+
       final pref = await SharedPreferences.getInstance();
       final jsonString = pref.getString(_config!.storageKey);
 
@@ -1194,6 +1202,14 @@ class ZebraUtility {
     try {
       if (_storedPrinterInfo == null) return;
 
+      if (_config?.storageKey == null) {
+        if (_config?.enableDebugLogging == true) {
+          developer.log('No storage key configured, skipping persist',
+              name: 'ZebraUtility');
+        }
+        return;
+      }
+
       final pref = await SharedPreferences.getInstance();
       final jsonString = jsonEncode(_storedPrinterInfo!.toJson());
       await pref.setString(_config!.storageKey, jsonString);
@@ -1211,20 +1227,25 @@ class ZebraUtility {
     }
   }
 
-  /// Clear persisted printer information
+  /// Clear persisted printer information from storage
   Future<void> _clearPersistedPrinterInfo() async {
     try {
-      // This is a placeholder for actual persistence implementation
-
-      if (_config?.enableDebugLogging == true) {
-        developer.log(
-            'Clearing persisted printer info... (implement persistence here)',
-            name: 'ZebraUtility');
+      if (_config?.storageKey == null) {
+        if (_config?.enableDebugLogging == true) {
+          developer.log('No storage key configured, skipping clear',
+              name: 'ZebraUtility');
+        }
+        return;
       }
 
-      // Example implementation would be:
       final pref = await SharedPreferences.getInstance();
       await pref.remove(_config!.storageKey);
+      _storedPrinterInfo = null; // Reset in-memory reference
+
+      if (_config?.enableDebugLogging == true) {
+        developer.log('Successfully cleared persisted printer info',
+            name: 'ZebraUtility');
+      }
     } catch (e) {
       if (_config?.enableDebugLogging == true) {
         developer.log('Failed to clear persisted printer info: $e',
