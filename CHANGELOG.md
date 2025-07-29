@@ -1,5 +1,52 @@
 # Changelog
 
+## [2.1.0] - 2024-12-19
+
+### 💾 Persistence & Storage Implementation
+
+#### ✨ New Features
+
+- **🗄️ SharedPreferences Integration**: Full implementation of printer information persistence using SharedPreferences
+- **🔄 Auto-Connect Support**: Automatic reconnection to last known printer on app startup
+- **📱 Cross-Session Storage**: Printer connections persist across app restarts
+- **🛡️ Enhanced Null Safety**: Improved error handling with proper null checks for storage operations
+- **🧹 Storage Management**: Complete storage lifecycle with load, persist, and clear operations
+
+#### 🔧 Technical Improvements
+
+- Implemented `_loadStoredPrinterInfo()` with SharedPreferences integration
+- Implemented `_persistPrinterInfo()` with JSON serialization
+- Implemented `_clearPersistedPrinterInfo()` with proper state cleanup
+- Added storage key validation and graceful fallbacks
+- Enhanced debug logging for storage operations
+
+#### 📦 Dependencies
+
+- **Added**: `shared_preferences` for persistent storage
+- **Optimized**: Streamlined dependencies for better performance
+
+#### 🎯 Usage
+
+```dart
+// Storage is automatically handled when configured
+await ZebraUtility.initialize(
+  config: ZebraConfig(
+    persistPrinterInfo: true,
+    autoConnectLastPrinter: true,
+    storageKey: 'my_zebra_printer',
+  )
+);
+
+// Printer info is automatically persisted after successful connection
+// and restored on next app launch
+```
+
+#### 🔄 Backward Compatibility
+
+- All existing APIs remain unchanged
+- Storage features are opt-in via configuration
+- No breaking changes to existing implementations
+
 ## [2.0.0] - 2024-12-19
 
 ### 🚀 MAJOR UPDATE: New Singleton API
