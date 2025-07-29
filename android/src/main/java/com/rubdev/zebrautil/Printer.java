@@ -499,6 +499,11 @@ public class Printer implements MethodChannel.MethodCallHandler {
                 errorArgs.put("ErrorText", "Print failed: " + e.getMessage());
                 methodChannel.invokeMethod("onPrintError", errorArgs);
             });
+        } finally {
+            // Quit the looper to terminate the thread properly
+            if (Looper.myLooper() != null) {
+                Looper.myLooper().quit();
+            }
         }
     }
 
@@ -564,6 +569,11 @@ public class Printer implements MethodChannel.MethodCallHandler {
                 errorArgs.put("ErrorText", "Generic printer error: " + e.getMessage());
                 methodChannel.invokeMethod("onPrintError", errorArgs);
             });
+        } finally {
+            // Quit the looper to terminate the thread properly
+            if (Looper.myLooper() != null) {
+                Looper.myLooper().quit();
+            }
         }
     }
 

@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as developer;
 
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zebrautil/zebra_device.dart';
 import 'package:zebrautil/zebra_printer.dart';
 import 'package:zebrautil/zebra_util.dart';
@@ -22,12 +24,20 @@ class ZebraConfig {
   /// Preferred connection type (Bluetooth or WiFi)
   final ConnectionType? preferredConnectionType;
 
+  /// Whether to persist printer information across app sessions
+  final bool persistPrinterInfo;
+
+  /// Storage key for persisting printer data (for custom implementations)
+  final String storageKey;
+
   const ZebraConfig({
     this.controller,
     this.enableDebugLogging = false,
     this.operationTimeout = const Duration(seconds: 30),
     this.autoConnectLastPrinter = false,
     this.preferredConnectionType,
+    this.persistPrinterInfo = true,
+    this.storageKey = 'zebra_utility_printer_data',
   });
 
   ZebraConfig copyWith({
@@ -36,6 +46,8 @@ class ZebraConfig {
     Duration? operationTimeout,
     bool? autoConnectLastPrinter,
     ConnectionType? preferredConnectionType,
+    bool? persistPrinterInfo,
+    String? storageKey,
   }) {
     return ZebraConfig(
       controller: controller ?? this.controller,
@@ -45,6 +57,8 @@ class ZebraConfig {
           autoConnectLastPrinter ?? this.autoConnectLastPrinter,
       preferredConnectionType:
           preferredConnectionType ?? this.preferredConnectionType,
+      persistPrinterInfo: persistPrinterInfo ?? this.persistPrinterInfo,
+      storageKey: storageKey ?? this.storageKey,
     );
   }
 }
@@ -186,18 +200,120 @@ class DiscoverySession {
   }
 }
 
+/// Stored printer information for persistence
+class StoredPrinterInfo {
+  final String address;
+  final String name;
+  final String status;
+  final bool isWifi;
+  final DateTime lastConnected;
+  final bool useGenericConnection;
+
+  const StoredPrinterInfo({
+    required this.address,
+    required this.name,
+    required this.status,
+    required this.isWifi,
+    required this.lastConnected,
+    this.useGenericConnection = false,
+  });
+
+  /// Convert to ZebraDevice
+  ZebraDevice toZebraDevice() {
+    return ZebraDevice(
+      address: address,
+      name: name,
+      status: status,
+      isWifi: isWifi,
+    );
+  }
+
+  /// Create from ZebraDevice
+  factory StoredPrinterInfo.fromZebraDevice(
+    ZebraDevice device, {
+    bool useGenericConnection = false,
+  }) {
+    return StoredPrinterInfo(
+      address: device.address,
+      name: device.name,
+      status: device.status,
+      isWifi: device.isWifi,
+      lastConnected: DateTime.now(),
+      useGenericConnection: useGenericConnection,
+    );
+  }
+
+  /// Convert to JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'address': address,
+      'name': name,
+      'status': status,
+      'isWifi': isWifi,
+      'lastConnected': lastConnected.toIso8601String(),
+      'useGenericConnection': useGenericConnection,
+    };
+  }
+
+  /// Create from JSON
+  factory StoredPrinterInfo.fromJson(Map<String, dynamic> json) {
+    return StoredPrinterInfo(
+      address: json['address'] as String,
+      name: json['name'] as String,
+      status: json['status'] as String,
+      isWifi: json['isWifi'] as bool,
+      lastConnected: DateTime.parse(json['lastConnected'] as String),
+      useGenericConnection: json['useGenericConnection'] as bool? ?? false,
+    );
+  }
+
+  StoredPrinterInfo copyWith({
+    String? address,
+    String? name,
+    String? status,
+    bool? isWifi,
+    DateTime? lastConnected,
+    bool? useGenericConnection,
+  }) {
+    return StoredPrinterInfo(
+      address: address ?? this.address,
+      name: name ?? this.name,
+      status: status ?? this.status,
+      isWifi: isWifi ?? this.isWifi,
+      lastConnected: lastConnected ?? this.lastConnected,
+      useGenericConnection: useGenericConnection ?? this.useGenericConnection,
+    );
+  }
+
+  @override
+  String toString() {
+    return 'StoredPrinterInfo(address: $address, name: $name, isWifi: $isWifi)';
+  }
+}
+
 /// Main singleton class for Zebra printer operations
 ///
 /// Usage:
 /// ```dart
 /// // Initialize once in main()
 /// await ZebraUtility.initialize(
-///   config: ZebraConfig(enableDebugLogging: true)
+///   config: ZebraConfig(
+///     enableDebugLogging: true,
+///     autoConnectLastPrinter: true,
+///     persistPrinterInfo: true,
+///   )
 /// );
 ///
 /// // Use anywhere in the app
 /// final zebra = ZebraUtility.instance;
+///
+/// // Connect and print with saved printer
+/// await zebra.connectAndPrint("Your ZPL data here");
+///
+/// // Or discover and connect manually
 /// await zebra.startDiscovery();
+/// await zebra.connect(device);
+/// await zebra.print("Your ZPL data");
 /// ```
 class ZebraUtility {
   static ZebraUtility? _instance;
@@ -219,6 +335,7 @@ class ZebraUtility {
   DiscoverySession? _currentDiscoverySession;
   final Map<String, PrintJob> _printJobs = {};
   ZebraDevice? _connectedDevice;
+  StoredPrinterInfo? _storedPrinterInfo;
   bool _isDisposed = false;
 
   /// Private constructor
@@ -258,6 +375,17 @@ class ZebraUtility {
             name: 'ZebraUtility');
       }
 
+      // Load stored printer info if available
+      if (config.persistPrinterInfo) {
+        await _instance!._loadStoredPrinterInfo();
+      }
+
+      // Auto-connect to last printer if configured
+      if (config.autoConnectLastPrinter &&
+          _instance!._storedPrinterInfo != null) {
+        await _instance!._autoConnectToStoredPrinter();
+      }
+
       return ZebraResult.success(_instance!);
     } catch (e) {
       developer.log('Failed to initialize ZebraUtility: $e',
@@ -291,6 +419,16 @@ class ZebraUtility {
   /// Get current configuration
   static ZebraConfig? get config => _config;
 
+  /// Reset the singleton (useful for testing or complete reinitialization)
+  static Future<void> reset() async {
+    if (_instance != null) {
+      await _instance!.dispose();
+    }
+    _instance = null;
+    _config = null;
+    _isInitialized = false;
+  }
+
   /// Stream of discovery sessions
   Stream<DiscoverySession> get discoveryStream => _discoveryController.stream;
 
@@ -317,6 +455,12 @@ class ZebraUtility {
 
   /// Whether a device is connected
   bool get isConnected => _connectedDevice != null;
+
+  /// Get stored printer information
+  StoredPrinterInfo? get storedPrinterInfo => _storedPrinterInfo;
+
+  /// Whether there's a stored printer available for auto-connect
+  bool get hasStoredPrinter => _storedPrinterInfo != null;
 
   /// Setup event handlers for the underlying printer
   void _setupEventHandlers() {
@@ -442,13 +586,15 @@ class ZebraUtility {
     }
   }
 
-  /// Connect to a printer
+  /// Connect to a printer and optionally store for future use
   ///
   /// [device] - The device to connect to
   /// [useGenericConnection] - Whether to use generic printer connection
+  /// [storeForFutureUse] - Whether to store this printer for auto-connect
   Future<ZebraResult<ZebraDevice>> connect(
     ZebraDevice device, {
     bool useGenericConnection = false,
+    bool storeForFutureUse = true,
   }) async {
     try {
       _ensureNotDisposed();
@@ -472,6 +618,11 @@ class ZebraUtility {
       _connectedDevice = device;
       _connectionController.add(device);
 
+      // Store printer info for future use
+      if (storeForFutureUse && _config?.persistPrinterInfo == true) {
+        await _storePrinterInfo(device, useGenericConnection);
+      }
+
       if (_config?.enableDebugLogging == true) {
         developer.log('Connected to printer: ${device.address}',
             name: 'ZebraUtility');
@@ -483,6 +634,236 @@ class ZebraUtility {
         ZebraError(
           'Failed to connect to printer: ${e.toString()}',
           type: ErrorType.connection,
+          originalError: e,
+        ),
+      );
+    }
+  }
+
+  /// Connect to stored printer if available
+  ///
+  /// Returns [ZebraResult] with the connected device or error
+  Future<ZebraResult<ZebraDevice>> connectToStoredPrinter() async {
+    try {
+      _ensureNotDisposed();
+
+      if (_storedPrinterInfo == null) {
+        return ZebraResult.failure(
+          const ZebraError(
+            'No stored printer available. Connect to a printer first.',
+            type: ErrorType.connection,
+          ),
+        );
+      }
+
+      final device = _storedPrinterInfo!.toZebraDevice();
+      return await connect(
+        device,
+        useGenericConnection: _storedPrinterInfo!.useGenericConnection,
+        storeForFutureUse: false, // Already stored
+      );
+    } catch (e) {
+      return ZebraResult.failure(
+        ZebraError(
+          'Failed to connect to stored printer: ${e.toString()}',
+          type: ErrorType.connection,
+          originalError: e,
+        ),
+      );
+    }
+  }
+
+  /// Connect and print in one operation
+  ///
+  /// This method will:
+  /// 1. Connect to stored printer if available and not already connected
+  /// 2. Print the provided data
+  /// 3. Return the print job result
+  ///
+  /// [data] - ZPL command string to print
+  /// [jobId] - Optional custom job ID
+  /// [autoReconnect] - Whether to attempt reconnection if not connected
+  Future<ZebraResult<PrintJob>> connectAndPrint(
+    String data, {
+    String? jobId,
+    bool autoReconnect = true,
+  }) async {
+    try {
+      _ensureNotDisposed();
+      _validatePrintData(data);
+
+      // Check if we need to connect
+      if (_connectedDevice == null && autoReconnect) {
+        if (_storedPrinterInfo != null) {
+          final connectResult = await connectToStoredPrinter();
+          if (!connectResult.isSuccess) {
+            return ZebraResult.failure(
+              ZebraError(
+                'Failed to auto-connect to stored printer: ${connectResult.error?.message}',
+                type: ErrorType.connection,
+                originalError: connectResult.error,
+              ),
+            );
+          }
+        } else {
+          return ZebraResult.failure(
+            const ZebraError(
+              'No printer connected and no stored printer available. Please connect to a printer first.',
+              type: ErrorType.connection,
+            ),
+          );
+        }
+      } else if (_connectedDevice == null) {
+        return ZebraResult.failure(
+          const ZebraError(
+            'No printer connected. Connect to a printer first or enable auto-reconnect.',
+            type: ErrorType.connection,
+          ),
+        );
+      }
+
+      // Print the data
+      return await print(data, jobId: jobId);
+    } catch (e) {
+      return ZebraResult.failure(
+        ZebraError(
+          'Failed to connect and print: ${e.toString()}',
+          type: ErrorType.printing,
+          originalError: e,
+        ),
+      );
+    }
+  }
+
+  /// Clear stored printer information
+  Future<ZebraResult<void>> clearStoredPrinter() async {
+    try {
+      _ensureNotDisposed();
+
+      _storedPrinterInfo = null;
+
+      if (_config?.persistPrinterInfo == true) {
+        await _clearPersistedPrinterInfo();
+      }
+
+      if (_config?.enableDebugLogging == true) {
+        developer.log('Cleared stored printer information',
+            name: 'ZebraUtility');
+      }
+
+      return const ZebraResult.success(null);
+    } catch (e) {
+      return ZebraResult.failure(
+        ZebraError(
+          'Failed to clear stored printer: ${e.toString()}',
+          type: ErrorType.unknown,
+          originalError: e,
+        ),
+      );
+    }
+  }
+
+  /// Get saved printer as ZebraDevice
+  ///
+  /// Returns the saved printer information as a [ZebraDevice] that can be used
+  /// for connection operations. Returns error if no printer is saved.
+  ZebraResult<ZebraDevice> getSavedPrinter() {
+    try {
+      _ensureNotDisposed();
+
+      if (_storedPrinterInfo == null) {
+        return ZebraResult.failure(
+          const ZebraError(
+            'No printer saved. Connect to a printer first to save it.',
+            type: ErrorType.validation,
+          ),
+        );
+      }
+
+      final device = _storedPrinterInfo!.toZebraDevice();
+
+      if (_config?.enableDebugLogging == true) {
+        developer.log('Retrieved saved printer: ${device.address}',
+            name: 'ZebraUtility');
+      }
+
+      return ZebraResult.success(device);
+    } catch (e) {
+      return ZebraResult.failure(
+        ZebraError(
+          'Failed to get saved printer: ${e.toString()}',
+          type: ErrorType.unknown,
+          originalError: e,
+        ),
+      );
+    }
+  }
+
+  /// Get saved printer information with metadata
+  ///
+  /// Returns the complete [StoredPrinterInfo] including connection preferences,
+  /// last connected time, and other metadata. Returns error if no printer is saved.
+  ZebraResult<StoredPrinterInfo> getSavedPrinterInfo() {
+    try {
+      _ensureNotDisposed();
+
+      if (_storedPrinterInfo == null) {
+        return ZebraResult.failure(
+          const ZebraError(
+            'No printer saved. Connect to a printer first to save it.',
+            type: ErrorType.validation,
+          ),
+        );
+      }
+
+      if (_config?.enableDebugLogging == true) {
+        developer.log(
+            'Retrieved saved printer info: ${_storedPrinterInfo!.address}',
+            name: 'ZebraUtility');
+      }
+
+      return ZebraResult.success(_storedPrinterInfo!);
+    } catch (e) {
+      return ZebraResult.failure(
+        ZebraError(
+          'Failed to get saved printer info: ${e.toString()}',
+          type: ErrorType.unknown,
+          originalError: e,
+        ),
+      );
+    }
+  }
+
+  /// Delete saved printer (alias for clearStoredPrinter)
+  ///
+  /// This is an alias for [clearStoredPrinter] to provide a more explicit
+  /// method name for deleting saved printer information.
+  Future<ZebraResult<void>> deleteSavedPrinter() async {
+    return await clearStoredPrinter();
+  }
+
+  /// Update stored printer information
+  Future<ZebraResult<void>> updateStoredPrinter(
+    ZebraDevice device, {
+    bool useGenericConnection = false,
+  }) async {
+    try {
+      _ensureNotDisposed();
+      _validateDevice(device);
+
+      await _storePrinterInfo(device, useGenericConnection);
+
+      if (_config?.enableDebugLogging == true) {
+        developer.log('Updated stored printer: ${device.address}',
+            name: 'ZebraUtility');
+      }
+
+      return const ZebraResult.success(null);
+    } catch (e) {
+      return ZebraResult.failure(
+        ZebraError(
+          'Failed to update stored printer: ${e.toString()}',
+          type: ErrorType.unknown,
           originalError: e,
         ),
       );
@@ -758,6 +1139,126 @@ class ZebraUtility {
         'ZebraUtility instance has been disposed',
         type: ErrorType.initialization,
       );
+    }
+  }
+
+  /// Store printer information for future use
+  Future<void> _storePrinterInfo(
+      ZebraDevice device, bool useGenericConnection) async {
+    _storedPrinterInfo = StoredPrinterInfo.fromZebraDevice(
+      device,
+      useGenericConnection: useGenericConnection,
+    );
+
+    if (_config?.persistPrinterInfo == true) {
+      await _persistPrinterInfo();
+    }
+
+    if (_config?.enableDebugLogging == true) {
+      developer.log('Stored printer info: ${device.address}',
+          name: 'ZebraUtility');
+    }
+  }
+
+  /// Load stored printer information from persistence
+  Future<void> _loadStoredPrinterInfo() async {
+    try {
+      final pref = await SharedPreferences.getInstance();
+      final jsonString = pref.getString(_config!.storageKey);
+
+      if (jsonString != null && jsonString.isNotEmpty) {
+        final json = jsonDecode(jsonString) as Map<String, dynamic>;
+        _storedPrinterInfo = StoredPrinterInfo.fromJson(json);
+
+        if (_config?.enableDebugLogging == true) {
+          developer.log(
+              'Successfully loaded stored printer info: ${_storedPrinterInfo!.address}',
+              name: 'ZebraUtility');
+        }
+      } else {
+        if (_config?.enableDebugLogging == true) {
+          developer.log('No stored printer info found in SharedPreferences',
+              name: 'ZebraUtility');
+        }
+      }
+    } catch (e) {
+      if (_config?.enableDebugLogging == true) {
+        developer.log('Failed to load stored printer info: $e',
+            name: 'ZebraUtility');
+      }
+    }
+  }
+
+  /// Persist printer information to storage
+  Future<void> _persistPrinterInfo() async {
+    try {
+      if (_storedPrinterInfo == null) return;
+
+      final pref = await SharedPreferences.getInstance();
+      final jsonString = jsonEncode(_storedPrinterInfo!.toJson());
+      await pref.setString(_config!.storageKey, jsonString);
+
+      if (_config?.enableDebugLogging == true) {
+        developer.log(
+            'Successfully persisted printer info: ${_storedPrinterInfo!.address}',
+            name: 'ZebraUtility');
+      }
+    } catch (e) {
+      if (_config?.enableDebugLogging == true) {
+        developer.log('Failed to persist printer info: $e',
+            name: 'ZebraUtility');
+      }
+    }
+  }
+
+  /// Clear persisted printer information
+  Future<void> _clearPersistedPrinterInfo() async {
+    try {
+      // This is a placeholder for actual persistence implementation
+
+      if (_config?.enableDebugLogging == true) {
+        developer.log(
+            'Clearing persisted printer info... (implement persistence here)',
+            name: 'ZebraUtility');
+      }
+
+      // Example implementation would be:
+      final pref = await SharedPreferences.getInstance();
+      await pref.remove(_config!.storageKey);
+    } catch (e) {
+      if (_config?.enableDebugLogging == true) {
+        developer.log('Failed to clear persisted printer info: $e',
+            name: 'ZebraUtility');
+      }
+    }
+  }
+
+  /// Auto-connect to stored printer
+  Future<void> _autoConnectToStoredPrinter() async {
+    try {
+      if (_storedPrinterInfo == null) return;
+
+      if (_config?.enableDebugLogging == true) {
+        developer.log(
+            'Auto-connecting to stored printer: ${_storedPrinterInfo!.address}',
+            name: 'ZebraUtility');
+      }
+
+      final result = await connectToStoredPrinter();
+      if (result.isSuccess) {
+        if (_config?.enableDebugLogging == true) {
+          developer.log('Auto-connected successfully', name: 'ZebraUtility');
+        }
+      } else {
+        if (_config?.enableDebugLogging == true) {
+          developer.log('Auto-connect failed: ${result.error?.message}',
+              name: 'ZebraUtility');
+        }
+      }
+    } catch (e) {
+      if (_config?.enableDebugLogging == true) {
+        developer.log('Auto-connect error: $e', name: 'ZebraUtility');
+      }
     }
   }
 

@@ -1,437 +1,298 @@
-# Zebra Printer Utility - Enhanced Implementation Guide
+# ZebraUtility Implementation Guide
 
-## Overview
+## Enhanced Singleton with Persistence
 
-This document outlines the comprehensive improvements made to the Zebra Printer Flutter plugin to make it production-ready, more reliable, and less error-prone.
+The ZebraUtility singleton now supports persistent printer storage and auto-connection. This allows you to:
 
-## Key Improvements
+1. **Initialize once** at app startup
+2. **Auto-connect** to the last used printer
+3. **Connect and print** in one operation
+4. **Persist printer information** across app sessions
 
-### 1. **Critical Threading Issue Fix** ✅
+## Quick Start
 
-Fixed a critical threading issue that was causing app crashes on Android with the error:
-```
-java.lang.RuntimeException: Methods marked with @UiThread must be executed on the main thread. Current thread: Thread-7
-```
+### 1. Initialize at App Startup
 
-#### **The Problem**
-- Print operations run on background threads for performance
-- Flutter method channel calls (`methodChannel.invokeMethod()`) were being made directly from these background threads
-- Flutter requires all method channel communications to happen on the main UI thread
-- This caused fatal crashes when print completion or error callbacks were triggered
-
-#### **The Solution**
-Wrapped all `methodChannel.invokeMethod()` calls in `((Activity) context).runOnUiThread()`:
-
-**Android (Printer.java) - Before:**
-```java
-// This would crash the app
-methodChannel.invokeMethod("onPrintComplete", null);
-```
-
-**Android (Printer.java) - After:**
-```java
-// Now properly executes on main thread
-((Activity) context).runOnUiThread(() -> {
-    methodChannel.invokeMethod("onPrintComplete", null);
-});
-```
-
-#### **Fixed Methods**
-- `printData()` - All success/error callbacks now use main thread
-- `printDataGenericPrinter()` - All success/error callbacks now use main thread
-- All exception handlers in printing methods
-- Maintained existing proper threading for discovery callbacks
-
-#### **Impact**
-- ✅ **Eliminates app crashes** during print operations
-- ✅ **Maintains background printing** for performance
-- ✅ **Ensures reliable callback delivery** to Flutter
-- ✅ **No breaking changes** to public API
-
-### 2. **Native Print Completion Detection** ✅
-
-The most significant improvement is the implementation of proper print completion detection at the native level.
-
-#### **Previous Implementation Problems**
-- Relied on arbitrary timeouts (10 seconds)
-- No real feedback from printer
-- Users couldn't tell if print actually succeeded
-- False positives were common
-
-#### **New Native Implementation**
-
-**Android (Printer.java)**
-```java
-// Enhanced printData method with printer status checking
-private void printData(String data) {
-    try {
-        // Send data to printer
-        printerConnection.write(bytes);
-        
-        // Check printer status to determine if print was successful
-        if (printer != null) {
-            PrinterStatus printerStatus = printer.getCurrentStatus();
-            
-            if (printerStatus.isReadyToPrint) {
-                // Send success callback to Flutter
-                methodChannel.invokeMethod("onPrintComplete", null);
-            } else {
-                // Check specific error conditions and send error callback
-                String errorMessage = getErrorMessage(printerStatus);
-                HashMap<String, Object> errorArgs = new HashMap<>();
-                errorArgs.put("ErrorText", errorMessage);
-                methodChannel.invokeMethod("onPrintError", errorArgs);
-            }
-        }
-    } catch (ConnectionException e) {
-        // Send connection error callback
-        methodChannel.invokeMethod("onPrintError", errorArgs);
-    }
-}
-```
-
-**iOS (Printer.swift)**
-```swift
-func printData(data: NSString) {
-    DispatchQueue.global(qos: .utility).async {
-        var printSuccessful = false
-        var errorMessage = ""
-        
-        // Send data and check result
-        let result = self.connection?.write(dataBytes, error: &error)
-        
-        if result != nil && result! >= 0 {
-            // Additional status checking for Zebra printers
-            if let zebraPrinter = ZebraPrinterFactory.getInstance(self.connection) {
-                if let printerStatus = zebraPrinter.getCurrentStatus(&statusError) {
-                    printSuccessful = printerStatus.isReadyToPrint
-                    // Set appropriate error messages for different conditions
-                }
-            }
-        }
-        
-        DispatchQueue.main.async {
-            if printSuccessful {
-                self.methodChannel?.invokeMethod("onPrintComplete", arguments: nil)
-            } else {
-                let errorArgs = ["ErrorText": errorMessage]
-                self.methodChannel?.invokeMethod("onPrintError", arguments: errorArgs)
-            }
-        }
-    }
-}
-```
-
-#### **Flutter Integration**
 ```dart
-// Print callbacks are now properly handled
-_printer.setOnPrintComplete(() {
-  // Real printer completion confirmation
-  _showPrintSuccessDialog();
-});
-
-_printer.setOnPrintError((errorMessage) {
-  // Actual printer error with specific message
-  _showErrorDialog(errorMessage);
-});
-```
-
-### 2. **Comprehensive Error Handling** ✅
-
-#### **Custom Exception Classes**
-```dart
-// Specific exception types for better error handling
-class ZebraPrinterException implements Exception {
-  final String message;
-  final String? code;
-  final dynamic originalError;
-}
-
-class ZebraValidationException extends ZebraPrinterException {
-  const ZebraValidationException(String message) : super(message);
-}
-```
-
-#### **Input Validation**
-```dart
-// Comprehensive validation for all inputs
-void _validateAddress(String address) {
-  if (address.isEmpty) {
-    throw const ZebraValidationException('Printer address cannot be empty');
-  }
-  if (address.length > _ZebraPrinterConstants.maxAddressLength) {
-    throw const ZebraValidationException('Printer address is too long');
-  }
-  if (address.trim() != address) {
-    throw const ZebraValidationException(
-        'Printer address cannot have leading or trailing whitespace');
-  }
-}
-
-void _validatePrintData(String data) {
-  if (data.isEmpty) {
-    throw const ZebraValidationException('Print data cannot be empty');
-  }
-}
-```
-
-### 3. **Enhanced Type Safety** ✅
-
-#### **Typed Callbacks**
-```dart
-// Replaced generic Function types with specific typedefs
-typedef OnDiscoveryError = void Function(String errorCode, String? errorText);
-typedef OnPermissionDenied = void Function();
-typedef OnPrintComplete = void Function();
-typedef OnPrintError = void Function(String errorMessage);
-```
-
-#### **Robust Method Call Handling**
-```dart
-// Handles both Map<String, dynamic> and Map<Object?, Object?> from native platforms
-Future<void> _nativeMethodCallHandler(MethodCall methodCall) async {
-  Map<String, dynamic>? args;
-  if (methodCall.arguments != null) {
-    if (methodCall.arguments is Map<String, dynamic>) {
-      args = methodCall.arguments as Map<String, dynamic>;
-    } else if (methodCall.arguments is Map) {
-      // Convert Map<Object?, Object?> to Map<String, dynamic>
-      final rawMap = methodCall.arguments as Map;
-      args = <String, dynamic>{};
-      rawMap.forEach((key, value) {
-        if (key is String) {
-          args![key] = value;
-        }
-      });
-    }
-  }
-  // Handle method calls...
-}
-```
-
-### 4. **Fixed Type Casting Issues** ✅
-
-#### **Boolean vs String Handling**
-```dart
-// Robust handling of IsWifi parameter that comes as both boolean and string
-final isWifiRaw = args[_ZebraPrinterConstants.isWifi];
-bool isWifi = false;
-if (isWifiRaw is bool) {
-  isWifi = isWifiRaw;
-} else if (isWifiRaw is String) {
-  isWifi = isWifiRaw.toLowerCase() == 'true';
-}
-```
-
-### 5. **Constants Management** ✅
-
-#### **Centralized Constants**
-```dart
-class _ZebraPrinterConstants {
-  // Method names
-  static const String checkPermission = 'checkPermission';
-  static const String startScan = 'startScan';
-  static const String print = 'print';
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   
-  // Validation constants
-  static const List<int> validDarknessValues = [
-    -99, -75, -50, -25, 0, 25, 50, 75, 100, 125, 150, 175, 200
-  ];
-  static const int maxAddressLength = 255;
-  static const int maxDataLength = 65536; // 64KB limit
-  
-  // Timeouts
-  static const Duration operationTimeout = Duration(seconds: 30);
-  static const Duration connectionDelay = Duration(milliseconds: 500);
-}
-```
-
-### 6. **Modern Example App** ✅
-
-#### **Complete UI Redesign**
-- **Material 3 Design**: Modern, clean interface
-- **Organized Sections**: Status, Controls, Printer List
-- **Real-time Updates**: Live scanning status and printer discovery
-- **Comprehensive Workflow**: Scan → Select → Connect → Print → Success
-
-#### **Enhanced Features**
-```dart
-// Settings dialog with comprehensive options
-void _showSettingsDialog(BuildContext context) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Printer Settings'),
-      content: Column(
-        children: [
-          // Darkness adjustment with all valid values
-          // Media type selection (Label, Black Mark, Journal)
-          // Rotation toggle
-        ],
-      ),
+  // Initialize ZebraUtility once
+  await ZebraUtility.initialize(
+    config: const ZebraConfig(
+      enableDebugLogging: true,
+      autoConnectLastPrinter: true,
+      persistPrinterInfo: true,
+      operationTimeout: Duration(seconds: 30),
     ),
   );
-}
-
-// Print success dialog with printer information
-void _showPrintSuccessDialog() {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      icon: const Icon(Icons.check_circle, color: Colors.green, size: 64),
-      title: const Text('Print Successful!'),
-      content: Column(
-        children: [
-          const Text('Your test label has been printed successfully.'),
-          // Printer information display
-          // Print Another button
-        ],
-      ),
-    ),
-  );
+  
+  runApp(const MyApp());
 }
 ```
 
-### 7. **Resource Management** ✅
+### 2. Use Anywhere in Your App
 
-#### **Proper Disposal Pattern**
 ```dart
-Future<void> dispose() async {
-  if (_isDisposed) return;
+class PrintService {
+  static final ZebraUtility _zebra = ZebraUtility.instance;
+  
+  // Simple print with auto-connect
+  static Future<bool> quickPrint(String zplData) async {
+    final result = await _zebra.connectAndPrint(zplData);
+    return result.isSuccess;
+  }
+  
+  // Check if printer is available
+  static bool get hasPrinter => _zebra.hasStoredPrinter || _zebra.isConnected;
+}
+```
 
+### 3. Connect and Print in One Call
+
+```dart
+// This will automatically connect to stored printer if needed
+final result = await ZebraUtility.instance.connectAndPrint('''
+^XA
+^CF0,60
+^FO50,50^FDHello World^FS
+^XZ
+''');
+
+if (result.isSuccess) {
+  print('Print job started: ${result.data!.id}');
+} else {
+  print('Print failed: ${result.error!.message}');
+}
+```
+
+## Implementing Persistence
+
+The current implementation includes placeholder methods for persistence. To add actual storage, implement these methods:
+
+### Using SharedPreferences
+
+Add to your `pubspec.yaml`:
+```yaml
+dependencies:
+  shared_preferences: ^2.2.2
+```
+
+Then implement the persistence methods in `ZebraUtility`:
+
+```dart
+// Replace the placeholder _loadStoredPrinterInfo method
+Future<void> _loadStoredPrinterInfo() async {
   try {
-    // Stop scanning if active
-    if (_isScanning) {
-      await stopScanning();
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_config!.storageKey);
+    if (jsonString != null) {
+      final json = jsonDecode(jsonString);
+      _storedPrinterInfo = StoredPrinterInfo.fromJson(json);
+      
+      if (_config?.enableDebugLogging == true) {
+        developer.log('Loaded stored printer: ${_storedPrinterInfo!.address}', 
+            name: 'ZebraUtility');
+      }
     }
-
-    // Disconnect if connected
-    if (_controller.selectedAddress != null) {
-      await disconnect();
-    }
-
-    // Clean up method channel
-    _channel.setMethodCallHandler(null);
-
-    _isDisposed = true;
   } catch (e) {
-    _isDisposed = true; // Mark as disposed even if cleanup failed
+    if (_config?.enableDebugLogging == true) {
+      developer.log('Failed to load stored printer info: $e', name: 'ZebraUtility');
+    }
+  }
+}
+
+// Replace the placeholder _persistPrinterInfo method
+Future<void> _persistPrinterInfo() async {
+  try {
+    if (_storedPrinterInfo == null) return;
+    
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = jsonEncode(_storedPrinterInfo!.toJson());
+    await prefs.setString(_config!.storageKey, jsonString);
+    
+    if (_config?.enableDebugLogging == true) {
+      developer.log('Persisted printer info: ${_storedPrinterInfo!.address}', 
+          name: 'ZebraUtility');
+    }
+  } catch (e) {
+    if (_config?.enableDebugLogging == true) {
+      developer.log('Failed to persist printer info: $e', name: 'ZebraUtility');
+    }
+  }
+}
+
+// Replace the placeholder _clearPersistedPrinterInfo method
+Future<void> _clearPersistedPrinterInfo() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_config!.storageKey);
+    
+    if (_config?.enableDebugLogging == true) {
+      developer.log('Cleared persisted printer info', name: 'ZebraUtility');
+    }
+  } catch (e) {
+    if (_config?.enableDebugLogging == true) {
+      developer.log('Failed to clear persisted printer info: $e', name: 'ZebraUtility');
+    }
   }
 }
 ```
 
-### 8. **Comprehensive Testing Features** ✅
+### Using Hive (Alternative)
 
-#### **Debug Tools**
+For more advanced storage, you can use Hive:
+
+```yaml
+dependencies:
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+```
+
+## Key Features
+
+### 1. Auto-Connection
+- Automatically connects to the last used printer on app startup
+- Configurable via `ZebraConfig.autoConnectLastPrinter`
+
+### 2. One-Shot Printing
+- `connectAndPrint()` method handles connection and printing in one call
+- Automatically connects to stored printer if not already connected
+
+### 3. Persistent Storage
+- Saves printer information across app sessions
+- Configurable storage key for custom implementations
+
+### 4. Enhanced Error Handling
+- Type-safe `ZebraResult<T>` wrapper for all operations
+- Detailed error information with error types
+
+### 5. Stream-Based Updates
+- Real-time updates for connections, discoveries, and print jobs
+- Easy integration with Flutter's reactive widgets
+
+### 6. Saved Printer Management
+- `getSavedPrinter()` - Get saved printer as ZebraDevice
+- `getSavedPrinterInfo()` - Get detailed saved printer information  
+- `deleteSavedPrinter()` / `clearStoredPrinter()` - Remove saved printer
+
+## Saved Printer Methods
+
+### Get Saved Printer
+
 ```dart
-// Test printer addition for debugging
-void addTestPrinter() {
-  final testArgs = <String, dynamic>{
-    'Address': '00:07:4D:C9:52:88',
-    'Name': 'Test Zebra Printer',
-    'Status': 'Ready',
-    'IsWifi': 'false',
-  };
+// Get saved printer as ZebraDevice for connection
+final result = ZebraUtility.instance.getSavedPrinter();
+if (result.isSuccess) {
+  final device = result.data!;
+  print('Saved printer: ${device.name} (${device.address})');
   
-  _handlePrinterFound(testArgs);
+  // You can use this device to connect
+  await zebra.connect(device);
+} else {
+  print('No saved printer: ${result.error!.message}');
+}
+
+// Get detailed saved printer information with metadata
+final infoResult = ZebraUtility.instance.getSavedPrinterInfo();
+if (infoResult.isSuccess) {
+  final info = infoResult.data!;
+  print('Printer: ${info.name}');
+  print('Last connected: ${info.lastConnected}');
+  print('Uses generic connection: ${info.useGenericConnection}');
+  print('Connection type: ${info.isWifi ? 'WiFi' : 'Bluetooth'}');
 }
 ```
 
-#### **Enhanced Logging**
+### Delete Saved Printer
+
 ```dart
-// Comprehensive logging throughout the codebase
-developer.log('ZebraPrinter initialized with ID: $id', name: 'ZebraPrinter');
-developer.log('Starting printer scan with channel: ${_channel.name}', name: 'ZebraPrinter');
-developer.log('Permission check result: $isGrantPermission', name: 'ZebraPrinter');
+// Delete the saved printer
+final result = await ZebraUtility.instance.deleteSavedPrinter();
+if (result.isSuccess) {
+  print('Saved printer deleted successfully');
+} else {
+  print('Failed to delete saved printer: ${result.error!.message}');
+}
+
+// Alternative method (same functionality)
+await ZebraUtility.instance.clearStoredPrinter();
 ```
 
-## Benefits of the Enhanced Implementation
+### Check if Printer is Saved
 
-### **1. Reliability**
-- ✅ **No more app crashes** due to threading issues
-- ✅ **Thread-safe method channel communications**
-- ✅ Real printer status feedback
-- ✅ Proper error detection and reporting
-- ✅ No false positive print confirmations
-- ✅ Timeout only as backup (30s instead of 10s)
-
-### **2. User Experience**
-- ✅ Clear print success/failure feedback
-- ✅ Specific error messages (paper out, head open, etc.)
-- ✅ Modern, intuitive UI
-- ✅ Real-time status updates
-
-### **3. Developer Experience**
-- ✅ Type-safe callback functions
-- ✅ Comprehensive error handling
-- ✅ Clear separation of concerns
-- ✅ Easy debugging tools
-
-### **4. Production Readiness**
-- ✅ **Crash-free printing operations**
-- ✅ **Thread-safe native implementations**
-- ✅ Proper resource management
-- ✅ Input validation
-- ✅ Error boundaries
-- ✅ Null safety compliance
-
-## Migration Guide
-
-### **For Existing Users**
-
-1. **Update Dependencies**: No breaking changes to public API
-2. **Remove Custom Timeouts**: Native callbacks now provide real feedback
-3. **Enhanced Error Handling**: More specific error messages available
-4. **New Callback Types**: Optional but recommended for better UX
-
-### **Example Migration**
 ```dart
-// Old way (still supported)
-final printer = await ZebraUtil.getPrinterInstance();
+// Quick check
+if (ZebraUtility.instance.hasStoredPrinter) {
+  print('A printer is saved');
+}
 
-// New way (recommended)
-final printer = await ZebraUtil.getPrinterInstance(
-  onPrintComplete: () => print('Print successful!'),
-  onPrintError: (error) => print('Print failed: $error'),
-);
+// Or get the stored printer info directly (getter, no error handling)
+final storedInfo = ZebraUtility.instance.storedPrinterInfo;
+if (storedInfo != null) {
+  print('Saved printer: ${storedInfo.name}');
+}
 ```
 
-## Testing
+## App Lifecycle Management
 
-### **Native Callback Testing**
-1. Connect to a Zebra printer
-2. Print a test label
-3. Verify immediate callback response
-4. Test error conditions (paper out, head open)
-5. Confirm specific error messages
+### Initialization
+```dart
+// Initialize once in main()
+await ZebraUtility.initialize(config: myConfig);
+```
 
-### **Error Condition Testing**
-- Remove paper → "Paper out" error
-- Open printer head → "Printer head open" error
-- Pause printer → "Printer paused" error
-- Connection loss → "Connection error" with details
+### Usage Throughout App
+```dart
+// Use anywhere without re-initialization
+final zebra = ZebraUtility.instance;
+```
 
-## Version History
+### Cleanup (Optional)
+```dart
+// Only needed for testing or complete reset
+await ZebraUtility.reset();
+```
 
-### **Latest Version - Threading Issue Fix**
-- ✅ **Fixed Critical Threading Crashes**: Resolved `@UiThread` violations in Android
-- ✅ **Thread-Safe Implementation**: All method channel calls now properly execute on main thread
-- ✅ **Maintained Performance**: Background printing operations continue to work efficiently
-- ✅ **Zero Breaking Changes**: Existing code continues to work without modifications
+## Best Practices
 
-### **Previous Improvements**
-- Enhanced print completion detection
-- Comprehensive error handling
-- Type-safe callback implementations
-- Modern UI components
+1. **Initialize Early**: Call `ZebraUtility.initialize()` in `main()` before `runApp()`
+2. **Use Streams**: Listen to streams for reactive UI updates
+3. **Handle Errors**: Always check `ZebraResult.isSuccess` before using data
+4. **Store Important Printers**: Let the system store frequently used printers
+5. **Test Connectivity**: Use `connectAndPrint()` for reliable printing
 
-## Conclusion
+## Configuration Options
 
-The enhanced Zebra Printer Utility now provides:
-- **Crash-free operation** with proper threading implementation
-- **Real-time print completion detection** at the native level
-- **Comprehensive error handling** with specific error messages
-- **Type-safe, modern Flutter implementation**
-- **Production-ready reliability and user experience**
+```dart
+ZebraConfig(
+  enableDebugLogging: true,           // Enable detailed logging
+  autoConnectLastPrinter: true,       // Auto-connect on startup
+  persistPrinterInfo: true,           // Save printer across sessions
+  operationTimeout: Duration(seconds: 30), // Custom timeout
+  storageKey: 'my_printer_storage',   // Custom storage key
+)
+```
 
-This implementation eliminates both app crashes and guesswork around print success/failure, providing users with immediate, accurate feedback about their print jobs in a stable, production-ready environment. 
+## Error Handling
+
+```dart
+final result = await zebra.connectAndPrint(zplData);
+if (result.isSuccess) {
+  // Success - use result.data
+  print('Print job: ${result.data!.id}');
+} else {
+  // Handle error - use result.error
+  switch (result.error!.type) {
+    case ErrorType.connection:
+      // Handle connection errors
+      break;
+    case ErrorType.printing:
+      // Handle printing errors
+      break;
+    default:
+      // Handle other errors
+      break;
+  }
+}
+``` 
